@@ -1,6 +1,10 @@
 """
 ==============================================================================
-MÓDULO DE COMPONENTES VISUALES (ui_widgets.py)
+VISUAL COMPONENTS ENGINE (ui_widgets.py)
+==============================================================================
+Architecture:
+    OOP Encapsulation. Extends 'CustomTkinter' classes to create modular,
+    reusable UI elements (DRY principle), keeping main.py declarative.
 ==============================================================================
 """
 
@@ -8,6 +12,7 @@ import customtkinter as ctk
 from config import *
 
 class AccentCard(ctk.CTkFrame):
+    """High-level container with a colored lateral accent line."""
     def __init__(self, parent, accent_color=CYAN, **kwargs):
         super().__init__(parent, fg_color=CARD, corner_radius=16, border_width=1, border_color=BORDER, **kwargs)
         self.grid_columnconfigure(1, weight=1)
@@ -20,11 +25,13 @@ class AccentCard(ctk.CTkFrame):
         self.inner.grid_columnconfigure(0, weight=1)
 
 class PillNavButton(ctk.CTkButton):
+    """Modern Pill-shaped navigation button for the sidebar."""
     def __init__(self, parent, **kwargs):
         super().__init__(parent, anchor="w", font=F_UI_B, fg_color="transparent",
                          hover_color=CARD, text_color=TEXT_DIM, corner_radius=10, height=46, **kwargs)
 
 class StatWidget(ctk.CTkFrame):
+    """Real-time KPI Dashboard Widget."""
     def __init__(self, parent, label, color, **kwargs):
         super().__init__(parent, fg_color="transparent", **kwargs)
         self.lbl_num = ctk.CTkLabel(self, text="0", font=F_STAT_NUM, text_color=color)
@@ -35,6 +42,7 @@ class StatWidget(ctk.CTkFrame):
         self.lbl_num.configure(text=str(v))
 
 class GlowProgressBar(ctk.CTkFrame):
+    """Asynchronous Progress Bar with built-in text labels."""
     def __init__(self, parent, color=CYAN, **kwargs):
         super().__init__(parent, fg_color="transparent", **kwargs)
         self.grid_columnconfigure(0, weight=1)
@@ -47,7 +55,7 @@ class GlowProgressBar(ctk.CTkFrame):
         self._bar.grid(row=0, column=0, sticky="ew")
         self._bar.set(0)
 
-        self._lbl = ctk.CTkLabel(self, text="Esperando...", font=F_SUBTITLE, text_color=TEXT_DIM, anchor="w")
+        self._lbl = ctk.CTkLabel(self, text="Waiting...", font=F_SUBTITLE, text_color=TEXT_DIM, anchor="w")
         self._lbl.grid(row=1, column=0, sticky="w")
 
     def update(self, value, text):
@@ -55,12 +63,14 @@ class GlowProgressBar(ctk.CTkFrame):
         self._lbl.configure(text=text)
 
 class PremiumInput(ctk.CTkEntry):
+    """Standardized text entry box."""
     def __init__(self, parent, **kwargs):
         super().__init__(parent, height=44, font=F_UI, fg_color=BG, border_color=BORDER_LT,
                          border_width=1, text_color=TEXT, placeholder_text_color=TEXT_GHOST,
                          corner_radius=10, **kwargs)
 
 class PremiumCombo(ctk.CTkComboBox):
+    """Standardized Dropdown Menu."""
     def __init__(self, parent, **kwargs):
         super().__init__(parent, height=44, font=F_UI, fg_color=BG, border_color=BORDER_LT,
                          border_width=1, text_color=TEXT, button_color=BORDER_LT,

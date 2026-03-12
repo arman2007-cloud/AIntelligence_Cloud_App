@@ -1,11 +1,16 @@
 """
 ==============================================================================
-AINTELLIGENCE ENTERPRISE SUITE v34.0 — CORE CONTROLLER (main.py)
+AINTELLIGENCE ENTERPRISE SUITE v34.3 — CORE CONTROLLER (main.py)
 ==============================================================================
-Arquitectura MVC & Concurrencia (Threading):
-    Ejecutable principal. Construye la GUI y orquesta el Web-Scraping.
-    100% alineado con la configuración por entorno (.env).
-    (Modo Silencioso: Sin alertas sonoras).
+Architecture MVC & Concurrency (Threading):
+    Primary executable. Builds the UI and orchestrates the Web-Scraping
+    Daemon threads. Fully Localized to EN (UI) but adapted to ES (Scraping).
+
+Hotfix v34.3:
+    - Bilingual Scraper Engine: LinkedIn ES uses localized formats for
+      company size (e.g., "51 a 200 empleados" instead of "51-200").
+      The extraction regex now uses a broad "Word + Digit" bounding box.
+    - Chrome Lang Override: Enforces es-ES natively for stable DOM rendering.
 ==============================================================================
 """
 
@@ -18,10 +23,10 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-import time, random, csv, os, json, urllib.parse, logging, sys, threading
+import time, random, csv, os, webbrowser, json, urllib.parse, logging, sys, threading
 from datetime import datetime
 
-# === IMPORTACIONES DE NUESTRA ARQUITECTURA MODULAR ===
+# === MODULAR ARCHITECTURE IMPORTS ===
 from config import *
 from utils import *
 from ui_widgets import *
@@ -42,32 +47,29 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s | %(message)s", date
 log = logging.getLogger(__name__)
 
 # ==============================================================================
-# CLASE PRINCIPAL: ESTADO GLOBAL Y RUTAS (ROUTING)
+# MAIN APPLICATION CONTROLLER
 # ==============================================================================
 class AIntelligenceApp(ctk.CTk):
     def __init__(self):
         super().__init__()
-        self.title("AIntelligence — Enterprise Suite")
+        self.title("AIntelligence — HR Automation Suite")
         self.geometry("1340x860")
         self.minsize(1100, 760)
         self.configure(fg_color=BG)
         ctk.set_appearance_mode("dark")
 
-        # Punteros de memoria y drivers
         self.driver = None
         self.bot_thread = None
-        self.archivo_mod1_seleccionado = ""
-        self.save_path_mod2 = ""
-        self.save_path_mod3 = ""
+        self.mod1_selected_file = ""
+        self.mod2_save_path = ""
+        self.mod3_save_path = ""
 
-        # Semáforos de concurrencia
         self.stop_event = threading.Event()
         self.pause_event = threading.Event()
         self.pause_event.set()
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
 
-        # Pipeline Visual
         self._build_layout()
         self._build_sidebar()
         self._build_home()
@@ -80,7 +82,7 @@ class AIntelligenceApp(ctk.CTk):
         self._show_frame("home")
 
     # ----------------------------------------------------------------------
-    # VIEW BUILDERS (Constructor de Interfaz Gráfica)
+    # VIEW BUILDERS (UI Construction)
     # ----------------------------------------------------------------------
     def _build_layout(self):
         self.grid_columnconfigure(1, weight=1)
@@ -107,22 +109,28 @@ class AIntelligenceApp(ctk.CTk):
                 w, h = img.size
                 new_w = 192
                 ci = ctk.CTkImage(light_image=img, dark_image=img, size=(new_w, int(new_w * h / w)))
-                ctk.CTkLabel(logo_frame, image=ci, text="").pack(anchor="w")
+                lbl_logo = ctk.CTkLabel(logo_frame, image=ci, text="", cursor="hand2")
+                lbl_logo.pack(anchor="w")
+                lbl_logo.bind("<Button-1>", lambda e: webbrowser.open("https://aintelligence.ai/"))
                 logo_ok = True
         except: pass
         if not logo_ok:
-            ctk.CTkLabel(logo_frame, text="AIntelligence", font=("Calibri", 22, "bold"), text_color=TEXT).pack(anchor="w")
-            ctk.CTkLabel(logo_frame, text="IT Consultancy — Malta", font=F_LABEL, text_color=CYAN).pack(anchor="w", pady=(2, 0))
+            lbl_name = ctk.CTkLabel(logo_frame, text="AIntelligence", font=("Calibri", 22, "bold"), text_color=TEXT, cursor="hand2")
+            lbl_name.pack(anchor="w")
+            lbl_name.bind("<Button-1>", lambda e: webbrowser.open("https://aintelligence.ai/"))
+            lbl_sub = ctk.CTkLabel(logo_frame, text="IT Consultancy — Malta", font=F_LABEL, text_color=CYAN, cursor="hand2")
+            lbl_sub.pack(anchor="w", pady=(2, 0))
+            lbl_sub.bind("<Button-1>", lambda e: webbrowser.open("https://aintelligence.ai/"))
 
         ctk.CTkFrame(self.sidebar, height=1, fg_color=BORDER).grid(row=1, column=0, sticky="ew", padx=28, pady=(0, 20))
-        ctk.CTkLabel(self.sidebar, text="MÓDULOS OPERATIVOS", font=F_LABEL, text_color=TEXT_GHOST).grid(row=2, column=0, padx=32, sticky="w")
+        ctk.CTkLabel(self.sidebar, text="TOOLS", font=F_LABEL, text_color=TEXT_GHOST).grid(row=2, column=0, padx=32, sticky="w")
 
         nav_items = [
-            ("home", "Conexión al Motor"),
-            ("mod3", "Prospectar Leads"),
-            ("mod1", "Bot Networking"),
-            ("mod2", "Cazar Vacantes B2B"),
-            ("tutorial", "Guía de Uso"),
+            ("home", "Connect to Engine"),
+            ("mod3", "Find Candidates"),
+            ("mod1", "Send Invitations"),
+            ("mod2", "Find Open Roles"),
+            ("tutorial", "How to Use"),
         ]
         self._nav_btns = {}
         for r, (key, label) in enumerate(nav_items, start=3):
@@ -134,12 +142,12 @@ class AIntelligenceApp(ctk.CTk):
 
         stats_outer = ctk.CTkFrame(self.sidebar, fg_color=CARD, corner_radius=16, border_width=1, border_color=BORDER)
         stats_outer.grid(row=9, column=0, padx=20, pady=24, sticky="sew")
-        ctk.CTkLabel(stats_outer, text="RENDIMIENTO HOY", font=F_LABEL, text_color=TEXT_GHOST).pack(pady=(18, 12))
+        ctk.CTkLabel(stats_outer, text="TODAY'S ACTIVITY", font=F_LABEL, text_color=TEXT_GHOST).pack(pady=(18, 12))
         stats_row = ctk.CTkFrame(stats_outer, fg_color="transparent")
         stats_row.pack(fill="x", padx=20, pady=(0, 12))
         stats_row.grid_columnconfigure((0, 1), weight=1)
         self._stat_labels = {}
-        for col, (key, label, color) in enumerate([("conexiones", "Conectados", CYAN), ("seguidos", "Empresas", CORAL)]):
+        for col, (key, label, color) in enumerate([("connections", "Connected", CYAN), ("followed", "Companies", CORAL)]):
             sw = StatWidget(stats_row, label=label, color=color)
             sw.grid(row=0, column=col, padx=10, pady=5)
             self._stat_labels[key] = sw
@@ -149,166 +157,166 @@ class AIntelligenceApp(ctk.CTk):
         self._dot_frame.pack(pady=(0, 18))
         self._dot = ctk.CTkFrame(self._dot_frame, width=8, height=8, corner_radius=4, fg_color=RED)
         self._dot.pack(side="left", padx=(0, 8))
-        self.lbl_status = ctk.CTkLabel(self._dot_frame, text="Motor Apagado", font=F_UI_B, text_color=RED)
+        self.lbl_status = ctk.CTkLabel(self._dot_frame, text="Engine Off", font=F_UI_B, text_color=RED)
         self.lbl_status.pack(side="left")
 
     def _build_home(self):
         f = ctk.CTkFrame(self.content, fg_color="transparent")
         self.frames["home"] = f
         f.grid_columnconfigure(0, weight=1)
-        self._page_header(f, "🔌 Inicializar Sistema", "Conecta tu cuenta de LinkedIn para despertar el motor de automatización.")
+        self._page_header(f, "🔌 Connect Your Account", "Log in to your LinkedIn account to start the automation engine.")
         card = ctk.CTkFrame(f, fg_color=CARD, corner_radius=20, border_width=1, border_color=BORDER)
         card.grid(row=1, column=0, padx=60, pady=30, sticky="ew")
         card.grid_columnconfigure(0, weight=1)
         inner = ctk.CTkFrame(card, fg_color="transparent")
         inner.grid(row=0, column=0, padx=60, pady=50)
-        ctk.CTkLabel(inner, text="Credenciales de Acceso", font=("Calibri", 20, "bold"), text_color=TEXT).pack(pady=(0, 25))
+        ctk.CTkLabel(inner, text="Login Details", font=("Calibri", 20, "bold"), text_color=TEXT).pack(pady=(0, 25))
         form_width = 380
-        ctk.CTkLabel(inner, text="CORREO ELECTRÓNICO", font=F_LABEL, text_color=TEXT_DIM).pack(anchor="w", padx=5, pady=(0, 5))
-        self.e_email = PremiumInput(inner, width=form_width, placeholder_text="ejemplo@correo.com")
+        ctk.CTkLabel(inner, text="EMAIL ADDRESS", font=F_LABEL, text_color=TEXT_DIM).pack(anchor="w", padx=5, pady=(0, 5))
+        self.e_email = PremiumInput(inner, width=form_width, placeholder_text="example@email.com")
         self.e_email.pack(pady=(0, 20))
-        ctk.CTkLabel(inner, text="CONTRASEÑA", font=F_LABEL, text_color=TEXT_DIM).pack(anchor="w", padx=5, pady=(0, 5))
+        ctk.CTkLabel(inner, text="PASSWORD", font=F_LABEL, text_color=TEXT_DIM).pack(anchor="w", padx=5, pady=(0, 5))
         self.e_pass = PremiumInput(inner, width=form_width, placeholder_text="••••••••", show="*")
         self.e_pass.pack(pady=(0, 35))
-        self.btn_arrancar = ctk.CTkButton(inner, text="Arrancar Motor 🚀", fg_color=CYAN, hover_color=CYAN_DIM, text_color="#000000", font=F_BTN, corner_radius=10, height=52, width=form_width, command=self._iniciar_navegador_thread)
+        self.btn_arrancar = ctk.CTkButton(inner, text="Start Engine 🚀", fg_color=CYAN, hover_color=CYAN_DIM, text_color="#000000", font=F_BTN, corner_radius=10, height=52, width=form_width, command=self._iniciar_navegador_thread)
         self.btn_arrancar.pack()
         note_frame = ctk.CTkFrame(inner, fg_color=BG, corner_radius=10, border_width=1, border_color=BORDER, width=form_width, height=60)
         note_frame.pack(pady=(25, 0))
         note_frame.pack_propagate(False)
-        ctk.CTkLabel(note_frame, text="💡 Si LinkedIn pide un captcha o código PIN,\nresuélvelo manualmente en Chrome.", font=F_SUBTITLE, text_color=TEXT_DIM, justify="center").place(relx=0.5, rely=0.5, anchor="center")
+        ctk.CTkLabel(note_frame, text="💡 If LinkedIn asks for a security check or PIN code,\nplease complete it manually in the Chrome window.", font=F_SUBTITLE, text_color=TEXT_DIM, justify="center").place(relx=0.5, rely=0.5, anchor="center")
 
     def _build_mod3(self):
         f = ctk.CTkFrame(self.content, fg_color="transparent")
         self.frames["mod3"] = f
         f.grid_columnconfigure(0, weight=1)
-        self._page_header(f, "🎯 Prospector de Leads", "Extrae candidatos de LinkedIn con ubicación en Malta.")
+        self._page_header(f, "🎯 Find Candidates", "Search LinkedIn for professionals based in Malta.")
         card = AccentCard(f, accent_color=CYAN)
         card.grid(row=1, column=0, padx=60, pady=(8, 16), sticky="ew")
         content = card.inner
-        self._section_label(content, "PARÁMETROS DE BÚSQUEDA", CYAN)
+        self._section_label(content, "SEARCH SETTINGS", CYAN)
         g = ctk.CTkFrame(content, fg_color="transparent")
         g.pack(fill="x", pady=(10, 20))
         g.grid_columnconfigure((0, 1), weight=1)
-        ctk.CTkLabel(g, text="CARGO A BUSCAR", font=F_LABEL, text_color=TEXT_DIM).grid(row=0, column=0, padx=(0, 16), sticky="w")
-        ctk.CTkLabel(g, text="PÁGINAS A RASPAR (1-5)", font=F_LABEL, text_color=TEXT_DIM).grid(row=0, column=1, sticky="w")
-        self.e_m3_perfil = PremiumInput(g, placeholder_text="Ej: CTO, Software Engineer")
+        ctk.CTkLabel(g, text="JOB TITLE TO SEARCH", font=F_LABEL, text_color=TEXT_DIM).grid(row=0, column=0, padx=(0, 16), sticky="w")
+        ctk.CTkLabel(g, text="PAGES TO SCAN (1-5)", font=F_LABEL, text_color=TEXT_DIM).grid(row=0, column=1, sticky="w")
+        self.e_m3_perfil = PremiumInput(g, placeholder_text="e.g. CTO, Software Engineer")
         self.e_m3_perfil.grid(row=1, column=0, padx=(0, 16), pady=(6, 0), sticky="ew")
-        self.e_m3_pags = PremiumInput(g, placeholder_text="Ej: 2")
+        self.e_m3_pags = PremiumInput(g, placeholder_text="e.g. 2")
         self.e_m3_pags.grid(row=1, column=1, pady=(6, 0), sticky="ew")
-        self._section_label(content, "FORMATO DE SALIDA", TEXT_DIM)
+        self._section_label(content, "FILE COLUMNS", TEXT_DIM)
         fmt = ctk.CTkFrame(content, fg_color=BG, corner_radius=10, border_width=1, border_color=BORDER)
         fmt.pack(fill="x", pady=(8, 24))
-        ctk.CTkLabel(fmt, text="Nombre   /   Cargo   /   Empresa_Actual   /   URL_Perfil", font=F_MON, text_color=CYAN).pack(padx=20, pady=12)
-        self._section_label(content, "PROGRESO", TEXT_DIM)
+        ctk.CTkLabel(fmt, text="Name   /   Job Title   /   Current Company   /   Profile URL", font=F_MON, text_color=CYAN).pack(padx=20, pady=12)
+        self._section_label(content, "PROGRESS", TEXT_DIM)
         self.prog3 = GlowProgressBar(content, color=CYAN)
         self.prog3.pack(fill="x", pady=(8, 24))
         self.container_btn3 = ctk.CTkFrame(content, fg_color="transparent")
         self.container_btn3.pack(fill="x", pady=(4, 8))
-        self.btn_start3 = ctk.CTkButton(self.container_btn3, text="Generar Base de Datos ⚡", fg_color=CYAN, hover_color=CYAN_DIM, text_color="#000", font=F_BTN, corner_radius=10, height=52, command=self._pre_run_mod3)
+        self.btn_start3 = ctk.CTkButton(self.container_btn3, text="Build Contact List ⚡", fg_color=CYAN, hover_color=CYAN_DIM, text_color="#000", font=F_BTN, corner_radius=10, height=52, command=self._pre_run_mod3)
         self.btn_start3.pack(fill="x")
         self.ctrl_frame3 = ctk.CTkFrame(self.container_btn3, fg_color="transparent")
-        self.btn_pause3 = ctk.CTkButton(self.ctrl_frame3, text="⏸ Pausar", fg_color=AMBER, hover_color="#e6a13c", text_color="#000", font=F_BTN, corner_radius=10, height=52, command=self._toggle_pause)
+        self.btn_pause3 = ctk.CTkButton(self.ctrl_frame3, text="⏸ Pause", fg_color=AMBER, hover_color="#e6a13c", text_color="#000", font=F_BTN, corner_radius=10, height=52, command=self._toggle_pause)
         self.btn_pause3.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self.btn_stop3 = ctk.CTkButton(self.ctrl_frame3, text="⏹ Detener", fg_color=RED, hover_color="#cc2d4a", text_color="#fff", font=F_BTN, corner_radius=10, height=52, command=self._stop_task)
+        self.btn_stop3 = ctk.CTkButton(self.ctrl_frame3, text="⏹ Stop", fg_color=RED, hover_color="#cc2d4a", text_color="#fff", font=F_BTN, corner_radius=10, height=52, command=self._stop_task)
         self.btn_stop3.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
     def _build_mod1(self):
         f = ctk.CTkFrame(self.content, fg_color="transparent")
         self.frames["mod1"] = f
         f.grid_columnconfigure(0, weight=1)
-        self._page_header(f, "🤖 Bot de Networking", "Automatiza invitaciones de conexión usando los CSV generados.")
+        self._page_header(f, "🤖 Send Invitations", "Automatically send LinkedIn connection requests using your contact list.")
         card = AccentCard(f, accent_color=EMERALD)
         card.grid(row=1, column=0, padx=60, pady=(8, 16), sticky="ew")
         content = card.inner
-        self._section_label(content, "ARCHIVO CSV A PROCESAR", EMERALD)
+        self._section_label(content, "CONTACT LIST FILE", EMERALD)
         file_frame = ctk.CTkFrame(content, fg_color=BG, corner_radius=10, border_width=1, border_color=BORDER)
         file_frame.pack(fill="x", pady=(8, 28))
         file_frame.grid_columnconfigure(0, weight=1)
-        self.lbl_archivo_mod1 = ctk.CTkLabel(file_frame, text="Ningún archivo seleccionado...", font=F_MON, text_color=TEXT_DIM, anchor="w")
+        self.lbl_archivo_mod1 = ctk.CTkLabel(file_frame, text="No file selected...", font=F_MON, text_color=TEXT_DIM, anchor="w")
         self.lbl_archivo_mod1.grid(row=0, column=0, padx=20, pady=16, sticky="w")
-        btn_sel = ctk.CTkButton(file_frame, text="Seleccionar CSV", width=160, height=36, fg_color=CARD, hover_color=BORDER, border_width=1, border_color=BORDER_LT, font=F_UI_B, text_color=TEXT, corner_radius=8, command=self._seleccionar_archivo)
+        btn_sel = ctk.CTkButton(file_frame, text="Choose File", width=160, height=36, fg_color=CARD, hover_color=BORDER, border_width=1, border_color=BORDER_LT, font=F_UI_B, text_color=TEXT, corner_radius=8, command=self._seleccionar_archivo)
         btn_sel.grid(row=0, column=1, padx=16, pady=12)
-        self._section_label(content, "PROGRESO DE CAMPAÑA", TEXT_DIM)
+        self._section_label(content, "SENDING PROGRESS", TEXT_DIM)
         self.prog1 = GlowProgressBar(content, color=EMERALD)
         self.prog1.pack(fill="x", pady=(8, 24))
         self.container_btn1 = ctk.CTkFrame(content, fg_color="transparent")
         self.container_btn1.pack(fill="x", pady=(4, 8))
-        self.btn_start1 = ctk.CTkButton(self.container_btn1, text="Iniciar Automatización ⚡", fg_color=EMERALD, hover_color="#009970", text_color="#000", font=F_BTN, corner_radius=10, height=52, command=lambda: self._lanzar_modulo(1))
+        self.btn_start1 = ctk.CTkButton(self.container_btn1, text="Start Sending ⚡", fg_color=EMERALD, hover_color="#009970", text_color="#000", font=F_BTN, corner_radius=10, height=52, command=lambda: self._lanzar_modulo(1))
         self.btn_start1.pack(fill="x")
         self.ctrl_frame1 = ctk.CTkFrame(self.container_btn1, fg_color="transparent")
-        self.btn_pause1 = ctk.CTkButton(self.ctrl_frame1, text="⏸ Pausar", fg_color=AMBER, hover_color="#e6a13c", text_color="#000", font=F_BTN, corner_radius=10, height=52, command=self._toggle_pause)
+        self.btn_pause1 = ctk.CTkButton(self.ctrl_frame1, text="⏸ Pause", fg_color=AMBER, hover_color="#e6a13c", text_color="#000", font=F_BTN, corner_radius=10, height=52, command=self._toggle_pause)
         self.btn_pause1.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self.btn_stop1 = ctk.CTkButton(self.ctrl_frame1, text="⏹ Detener", fg_color=RED, hover_color="#cc2d4a", text_color="#fff", font=F_BTN, corner_radius=10, height=52, command=self._stop_task)
+        self.btn_stop1 = ctk.CTkButton(self.ctrl_frame1, text="⏹ Stop", fg_color=RED, hover_color="#cc2d4a", text_color="#fff", font=F_BTN, corner_radius=10, height=52, command=self._stop_task)
         self.btn_stop1.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
     def _seleccionar_archivo(self):
-        """Abre el explorador de archivos para cargar el CSV."""
-        ruta = filedialog.askopenfilename(title="Selecciona tu archivo de Leads (CSV)", filetypes=[("Archivos CSV", "*.csv"), ("Todos los archivos", "*.*")])
-        if ruta:
-            self.archivo_mod1_seleccionado = ruta
-            nombre = os.path.basename(ruta)
-            self.lbl_archivo_mod1.configure(text=nombre, text_color=EMERALD)
-            self._log(f"Archivo cargado: {nombre}")
+        """Opens the OS file browser to load the CSV."""
+        path = filedialog.askopenfilename(title="Select your Contact List (CSV)", filetypes=[("CSV Files", "*.csv"), ("All Files", "*.*")])
+        if path:
+            self.mod1_selected_file = path
+            name = os.path.basename(path)
+            self.lbl_archivo_mod1.configure(text=name, text_color=EMERALD)
+            self._log(f"File loaded: {name}")
 
     def _build_mod2(self):
         f = ctk.CTkFrame(self.content, fg_color="transparent")
         self.frames["mod2"] = f
         f.grid_columnconfigure(0, weight=1)
-        self._page_header(f, "🏢 Cazador de Vacantes B2B", "Extrae empresas que contratan, modalidad, volumen y Hiring Manager.")
+        self._page_header(f, "🏢 Find Open Roles", "Find companies hiring in Malta and locate the Hiring Manager.")
         card = AccentCard(f, accent_color=CORAL)
         card.grid(row=1, column=0, padx=60, pady=(8, 16), sticky="ew")
         content = card.inner
-        self._section_label(content, "FILTROS DE BÚSQUEDA", CORAL)
+        self._section_label(content, "SEARCH FILTERS", CORAL)
         g = ctk.CTkFrame(content, fg_color="transparent")
         g.pack(fill="x", pady=(10, 20))
         g.grid_columnconfigure((0, 1, 2, 3), weight=1)
         defs2 = [
-            ("PALABRA CLAVE", "e_m2_puesto", PremiumInput, {"placeholder_text": "Ej: IT, Tech"}),
-            ("MODALIDAD", "cb_m2_tipo", PremiumCombo, {"values": ["Todos", "Presencial", "Híbrido", "Remoto"]}),
-            ("ANTIGÜEDAD", "cb_m2_tiempo", PremiumCombo, {"values": ["Cualquiera", "Últimas 24h", "Última semana"]}),
-            ("PÁGINAS (x25)", "e_m2_pags", PremiumInput, {"placeholder_text": "Ej: 2"}),
+            ("KEYWORD", "e_m2_puesto", PremiumInput, {"placeholder_text": "e.g. IT, Finance"}),
+            ("WORK TYPE", "cb_m2_tipo", PremiumCombo, {"values": ["All", "On-site", "Hybrid", "Remote"]}),
+            ("DATE POSTED", "cb_m2_tiempo", PremiumCombo, {"values": ["Any time", "Last 24h", "Last week"]}),
+            ("PAGES (x25 results)", "e_m2_pags", PremiumInput, {"placeholder_text": "e.g. 2"}),
         ]
         for col, (lbl, attr, Cls, kw) in enumerate(defs2):
             ctk.CTkLabel(g, text=lbl, font=F_LABEL, text_color=TEXT_DIM).grid(row=0, column=col, padx=12, sticky="w")
             widget = Cls(g, **kw)
             widget.grid(row=1, column=col, padx=12, pady=(6, 0), sticky="ew")
             setattr(self, attr, widget)
-        self._section_label(content, "PROGRESO DE EXTRACCIÓN", TEXT_DIM)
+        self._section_label(content, "SCAN PROGRESS", TEXT_DIM)
         self.prog2 = GlowProgressBar(content, color=CORAL)
         self.prog2.pack(fill="x", pady=(8, 24))
         self.container_btn2 = ctk.CTkFrame(content, fg_color="transparent")
         self.container_btn2.pack(fill="x", pady=(4, 8))
-        self.btn_start2 = ctk.CTkButton(self.container_btn2, text="Escanear Mercado ⚡", fg_color=CORAL, hover_color=CORAL_DIM, text_color="#fff", font=F_BTN, corner_radius=10, height=52, command=self._pre_run_mod2)
+        self.btn_start2 = ctk.CTkButton(self.container_btn2, text="Scan for Open Roles ⚡", fg_color=CORAL, hover_color=CORAL_DIM, text_color="#fff", font=F_BTN, corner_radius=10, height=52, command=self._pre_run_mod2)
         self.btn_start2.pack(fill="x")
         self.ctrl_frame2 = ctk.CTkFrame(self.container_btn2, fg_color="transparent")
-        self.btn_pause2 = ctk.CTkButton(self.ctrl_frame2, text="⏸ Pausar", fg_color=AMBER, hover_color="#e6a13c", text_color="#000", font=F_BTN, corner_radius=10, height=52, command=self._toggle_pause)
+        self.btn_pause2 = ctk.CTkButton(self.ctrl_frame2, text="⏸ Pause", fg_color=AMBER, hover_color="#e6a13c", text_color="#000", font=F_BTN, corner_radius=10, height=52, command=self._toggle_pause)
         self.btn_pause2.pack(side="left", fill="x", expand=True, padx=(0, 6))
-        self.btn_stop2 = ctk.CTkButton(self.ctrl_frame2, text="⏹ Detener", fg_color=RED, hover_color="#cc2d4a", text_color="#fff", font=F_BTN, corner_radius=10, height=52, command=self._stop_task)
+        self.btn_stop2 = ctk.CTkButton(self.ctrl_frame2, text="⏹ Stop", fg_color=RED, hover_color="#cc2d4a", text_color="#fff", font=F_BTN, corner_radius=10, height=52, command=self._stop_task)
         self.btn_stop2.pack(side="left", fill="x", expand=True, padx=(6, 0))
 
     def _build_tutorial(self):
         f = ctk.CTkFrame(self.content, fg_color="transparent")
         self.frames["tutorial"] = f
         f.grid_columnconfigure(0, weight=1)
-        self._page_header(f, "📖 Guía de Uso", "Aprende a dominar la herramienta en cuatro pasos sencillos.")
+        self._page_header(f, "📖 How to Use", "Follow these four steps to get started quickly.")
         sf = ctk.CTkScrollableFrame(f, fg_color=CARD, corner_radius=20, border_width=1, border_color=BORDER)
         sf.grid(row=1, column=0, padx=60, pady=20, sticky="nsew")
         f.grid_rowconfigure(1, weight=1)
         pasos = [
-            ("Paso 1 — Conexión y Motor", CYAN, "Ve a la primera pestaña, introduce tu correo y contraseña de LinkedIn y pulsa Arrancar Motor. Se abrirá una ventana de Chrome gestionada por el bot. Si LinkedIn pide un puzzle de seguridad o un código de verificación, resuélvelo manualmente en esa ventana. Cuando termines, el panel lateral dirá Motor En Línea."),
-            ("Paso 2 — Prospectar Leads", CYAN, "Escribe el puesto que buscas en Malta (Ej: Software Engineer, Marketing Manager) y cuántas páginas quieres escanear (máximo 5). El bot navegará automáticamente, extraerá los perfiles y guardará un archivo CSV en la carpeta que tú elijas con Nombre, Cargo y Empresa."),
-            ("Paso 3 — Bot Networking", EMERALD, "Ve a esta pestaña y pulsa Seleccionar CSV. Elige el archivo que generaste en el paso anterior. Al darle a Iniciar, el bot leerá tu lista e invitará a conectar a cada persona, haciendo pausas aleatorias e inteligentes para parecer humano y proteger tu cuenta."),
-            ("Paso 4 — Cazar Vacantes B2B", CORAL, "Si prefieres buscar empresas que estén contratando ahora mismo, usa esta opción. Escribe un sector (Ej: IT, Finance) y el bot rastreará las ofertas de empleo de Malta, extrayendo la ubicación, modalidad y buscando los perfiles del equipo de Recursos Humanos (Hiring Manager)."),
+            ("Step 1 — Log In", CYAN, "Go to the first tab, enter your LinkedIn email and password, then click Start Engine. A Chrome window will open — the tool uses it to browse LinkedIn on your behalf. If LinkedIn asks you to complete a security check or enter a code, just do it manually in that window. Once done, the left panel will show Engine Online."),
+            ("Step 2 — Find Candidates", CYAN, "Type the job title you are looking for in Malta (e.g. Software Engineer, Marketing Manager) and choose how many pages to scan (up to 5). The tool will search LinkedIn automatically and save a spreadsheet file with each person's Name, Job Title and Company."),
+            ("Step 3 — Send Invitations", EMERALD, "Go to this tab and click Choose File. Select the spreadsheet you created in the previous step. When you click Start Sending, the tool will visit each person's profile and send them a connection request. It pauses between requests to stay safe and avoid any account restrictions."),
+            ("Step 4 — Find Open Roles", CORAL, "Use this option to find companies that are actively hiring. Type a sector (e.g. IT, Finance) and the tool will scan Malta's job listings, extracting the company name, work type and the contact details of the hiring team."),
         ]
-        for titulo, color, texto in pasos:
+        for title, color, text in pasos:
             h = ctk.CTkFrame(sf, fg_color="transparent")
             h.pack(fill="x", padx=30, pady=(30, 0))
             h.grid_columnconfigure(1, weight=1)
             pill = ctk.CTkFrame(h, width=6, height=24, corner_radius=3, fg_color=color)
             pill.grid(row=0, column=0, padx=(0, 14), sticky="ns")
-            ctk.CTkLabel(h, text=titulo, font=("Calibri", 16, "bold"), text_color=color).grid(row=0, column=1, sticky="w")
+            ctk.CTkLabel(h, text=title, font=("Calibri", 16, "bold"), text_color=color).grid(row=0, column=1, sticky="w")
             ctk.CTkFrame(sf, height=1, fg_color=BORDER).pack(fill="x", padx=30, pady=(8, 12))
-            ctk.CTkLabel(sf, text=texto, font=F_UI, text_color=TEXT, justify="left", wraplength=820, anchor="w").pack(fill="x", padx=44, pady=(0, 12))
+            ctk.CTkLabel(sf, text=text, font=F_UI, text_color=TEXT, justify="left", wraplength=820, anchor="w").pack(fill="x", padx=44, pady=(0, 12))
 
     def _build_console(self):
         co = ctk.CTkFrame(self.content, fg_color=PANEL, corner_radius=0, height=230)
@@ -324,21 +332,21 @@ class AIntelligenceApp(ctk.CTk):
         dots.grid(row=0, column=0, padx=20, sticky="w")
         for dot_color in [CORAL, AMBER, EMERALD]:
             ctk.CTkFrame(dots, width=10, height=10, corner_radius=5, fg_color=dot_color).pack(side="left", padx=3, pady=12)
-        ctk.CTkLabel(hdr, text="TERMINAL DE EVENTOS", font=F_LABEL, text_color=TEXT_DIM).grid(row=0, column=1, sticky="w", padx=8)
+        ctk.CTkLabel(hdr, text="ACTIVITY LOG", font=F_LABEL, text_color=TEXT_DIM).grid(row=0, column=1, sticky="w", padx=8)
         live_frame = ctk.CTkFrame(hdr, fg_color="transparent")
         live_frame.grid(row=0, column=2, padx=20, sticky="e")
         ctk.CTkFrame(live_frame, width=8, height=8, corner_radius=4, fg_color=EMERALD).pack(side="left", padx=(0, 6), pady=14)
         ctk.CTkLabel(live_frame, text="LIVE", font=F_LABEL, text_color=EMERALD).pack(side="left")
 
-        # Interfaz de Log Virtual en solo lectura
+        # Read-only activity log terminal
         self.console = ctk.CTkTextbox(co, fg_color="#050508", text_color=EMERALD, font=F_MON, corner_radius=0, border_width=0, wrap="word")
         self.console.grid(row=1, column=0, sticky="nsew")
 
     # ----------------------------------------------------------------------
-    # MÉTODOS AUXILIARES DE RENDERIZADO UI
+    # UI HELPER METHODS
     # ----------------------------------------------------------------------
     def _page_header(self, parent, title, subtitle):
-        """Pinta los encabezados de página consistentes."""
+        """Renders consistent page headers across all views."""
         header_frame = ctk.CTkFrame(parent, fg_color="transparent")
         header_frame.grid(row=0, column=0, padx=60, pady=(44, 0), sticky="ew")
         header_frame.grid_columnconfigure(0, weight=1)
@@ -365,16 +373,16 @@ class AIntelligenceApp(ctk.CTk):
         ctk.CTkFrame(frame, height=1, fg_color=BORDER).pack(side="left", fill="x", expand=True, padx=(12, 0), pady=(2, 0))
 
     def _log(self, msg):
-        """Inyecta el texto a la terminal forzando la actualización en el Thread Principal."""
+        """Injects text into the activity log via the Tkinter main thread."""
         def _do():
             self.console.insert(ctk.END, f"[{datetime.now().strftime('%H:%M:%S')}]  {msg}\n")
-            self.console.see(ctk.END) # Auto-scroll hacia abajo
+            self.console.see(ctk.END) # Auto-scroll to bottom
         self.after(0, _do)
 
     def _update_stats(self):
         def _do():
             for key, sw in self._stat_labels.items():
-                sw.set_value(contadores[key])
+                sw.set_value(counters[key])
         self.after(0, _do)
 
     def _set_progress(self, bar, value, text):
@@ -388,7 +396,7 @@ class AIntelligenceApp(ctk.CTk):
         self.after(0, _do)
 
     def _redirect_logs(self):
-        """Secuestra la consola de Python para mostrarla en la interfaz."""
+        """Hijacks Python's stdout to pipe native print/log messages to the UI Terminal."""
         app = self
         class GUIHandler(logging.Handler):
             def emit(self, record): app._log(self.format(record))
@@ -397,14 +405,14 @@ class AIntelligenceApp(ctk.CTk):
         log.addHandler(h)
 
     def _show_frame(self, key):
-        """Enrutador interno (Router) entre las pestañas del menú."""
+        """Internal router logic. Enforces login state before accessing tools."""
         if key in ("mod1", "mod2", "mod3") and not self.driver:
-            self._log("Debes arrancar el motor desde la primera pestaña primero.")
+            self._log("Please start the engine from the first tab before using this section.")
             key = "home"
         if key in ("mod1", "mod2", "mod3") and self.driver:
             url = self.driver.current_url
             if "login" in url or "authwall" in url:
-                self._log("Sesión de LinkedIn expirada. Vuelve a Inicio.")
+                self._log("LinkedIn session has expired. Please go back to the first tab and log in again.")
                 key = "home"
         for btn in self._nav_btns.values(): btn.configure(text_color=TEXT_DIM, fg_color="transparent")
         if key in self._nav_btns: self._nav_btns[key].configure(text_color=TEXT, fg_color=CARD)
@@ -423,38 +431,40 @@ class AIntelligenceApp(ctk.CTk):
         self.after(0, _do)
 
     def _on_close(self):
-        """Destructor: Cierra la instancia de Chrome en RAM al salir."""
+        """Garbage Collector: Kills the orphan Chrome instance in RAM upon exit."""
         if self.driver:
             try: self.driver.quit()
             except: pass
         self.destroy()
 
     # ----------------------------------------------------------------------
-    # CONTROL DE CONCURRENCIA
+    # CONCURRENCY AND THREAD SEMAPHORES
     # ----------------------------------------------------------------------
     def _toggle_pause(self):
+        """Event Semaphore control: Pauses the background thread without killing it."""
         if self.pause_event.is_set():
             self.pause_event.clear()
-            self._log("⏸ Tarea pausada. Pulsa Reanudar para continuar.")
+            self._log("⏸ Paused. Click Resume to continue.")
             for btn in [self.btn_pause1, self.btn_pause2, self.btn_pause3]:
-                btn.configure(text="▶ Reanudar", fg_color=EMERALD, hover_color="#009970")
+                btn.configure(text="▶ Resume", fg_color=EMERALD, hover_color="#009970")
         else:
             self.pause_event.set()
-            self._log("▶ Tarea reanudada.")
+            self._log("▶ Resumed.")
             for btn in [self.btn_pause1, self.btn_pause2, self.btn_pause3]:
-                btn.configure(text="⏸ Pausar", fg_color=AMBER, hover_color="#e6a13c")
+                btn.configure(text="⏸ Pause", fg_color=AMBER, hover_color="#e6a13c")
 
     def _stop_task(self):
-        self._log("⏹ Cancelando tarea... (El bot parará en cuanto acabe su acción actual)")
+        self._log("⏹ Stopping... The tool will stop after finishing its current action.")
         self.stop_event.set()
         self.pause_event.set()
 
     def _check_stop_pause(self):
-        if self.stop_event.is_set(): raise InterruptedError("Operación cancelada por el usuario.")
+        """Checkpoint injected in heavy loops. Blocks if paused, kills thread if stopped."""
+        if self.stop_event.is_set(): raise InterruptedError("Cancelled by user.")
         self.pause_event.wait()
 
     def _pausa(self, a=8, b=14):
-        """Pausa inteligente: divide la espera en fracciones para no bloquear el botón Pausa."""
+        """Smart thread pause: slices the wait time to keep the GUI responsive."""
         t = random.uniform(a, b)
         steps = int(t / 0.5)
         for _ in range(steps):
@@ -466,65 +476,71 @@ class AIntelligenceApp(ctk.CTk):
             time.sleep(remainder)
 
     def _detectar_captcha(self):
+        """Security Watchdog: Halts execution if a LinkedIn Authwall is detected."""
         url = self.driver.current_url
         if any(x in url for x in ["captcha", "checkpoint", "challenge", "authwall"]):
-            self._log("🔒 VERIFICACIÓN DE LINKEDIN DETECTADA")
-            self._log("👉 Por favor, resuelve el Captcha/PIN en la ventana de Chrome.")
-            self._log("   (El sistema se reanudará automáticamente cuando termines).")
+            self._log("🔒 LINKEDIN SECURITY CHECK DETECTED")
+            self._log("👉 Please complete the security check or enter the PIN code in the Chrome window.")
+            self._log("   (The tool will continue automatically once you are done.)")
             while any(x in self.driver.current_url for x in ["captcha", "checkpoint", "challenge", "authwall"]):
                 self._check_stop_pause()
                 time.sleep(2)
-            self._log("✅ Verificación superada. Retomando automatización...")
+            self._log("✅ Security check passed. Resuming...")
             time.sleep(2)
             return True
         return False
 
     # ----------------------------------------------------------------------
-    # INYECCIÓN DEL NAVEGADOR
+    # BROWSER LAUNCH AND SESSION MANAGEMENT
     # ----------------------------------------------------------------------
     def _iniciar_navegador_thread(self):
         self.btn_arrancar.configure(state="disabled")
-        self._log("Arrancando Chrome invisible...")
+        self._log("Starting Chrome engine...")
         threading.Thread(target=self._proceso_login, daemon=True).start()
 
     def _proceso_login(self):
+        """Initializes Undetected ChromeDriver and manages persistent Cookies."""
         email = self.e_email.get().strip()
         password = self.e_pass.get().strip()
         try:
             opts = uc.ChromeOptions()
             opts.add_argument("--disable-blink-features=AutomationControlled")
+            # Force Spanish localization in Chrome to match the user's actual LinkedIn account,
+            # ensuring DOM selectors don't break when switching languages.
             opts.add_argument("--lang=es-ES")
             self.driver = uc.Chrome(options=opts, version_main=145)
+
+            # Chrome DevTools Protocol command to strip webdriver flags
             self.driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": "Object.defineProperty(navigator,'webdriver',{get:()=>undefined})"})
 
-            if os.path.isfile(ARCHIVO_COOKIES):
-                with open(ARCHIVO_COOKIES, "r", encoding="utf-8") as f: cookies = json.load(f)
+            if os.path.isfile(COOKIES_FILE):
+                with open(COOKIES_FILE, "r", encoding="utf-8") as f: loaded_cookies = json.load(f)
                 self.driver.get("https://www.linkedin.com")
-                pausa_aleatoria(2, 4)
-                for ck in cookies:
+                random_pause(2, 4)
+                for ck in loaded_cookies:
                     try: self.driver.add_cookie(ck)
                     except: pass
                 self.driver.refresh()
-                pausa_aleatoria(4, 6)
+                random_pause(4, 6)
 
                 if "feed" in self.driver.current_url or "mynetwork" in self.driver.current_url:
-                    self._log("Sesión restaurada correctamente. Motor listo.")
-                    self._set_session_status("Motor En Línea", EMERALD)
+                    self._log("Session restored. Engine ready.")
+                    self._set_session_status("Engine Online", EMERALD)
                     self._encoger_ventana()
                     return
                 else:
-                    self._log("⚠️ Las cookies guardadas han caducado o pertenecen a otra cuenta.")
-                    self._log("🧹 Limpiando sesión antigua...")
+                    self._log("⚠️ Saved session has expired or belongs to a different account.")
+                    self._log("🧹 Clearing old session...")
                     self.driver.delete_all_cookies()
-                    try: os.remove(ARCHIVO_COOKIES)
+                    try: os.remove(COOKIES_FILE)
                     except: pass
-                    pausa_aleatoria(2, 3)
+                    random_pause(2, 3)
 
             self.driver.get("https://www.linkedin.com/login")
-            pausa_aleatoria(2, 4)
+            random_pause(2, 4)
 
             if email and password:
-                self._log("Inyectando credenciales a nivel de código (Deep JS)...")
+                self._log("Injecting credentials...")
                 try:
                     js_inject = """
                     var email = arguments[0]; var pwd = arguments[1];
@@ -538,51 +554,52 @@ class AIntelligenceApp(ctk.CTk):
                     } return false;
                     """
                     exito = self.driver.execute_script(js_inject, email, password)
-                    if exito: self._log("Credenciales inyectadas correctamente. Comprobando...")
-                    else: self._log("No se encontraron los campos. Inicia sesión manualmente.")
-                except Exception: self._log("Error al autocompletar. Inicia sesión manualmente.")
+                    if exito: self._log("Credentials entered. Checking...")
+                    else: self._log("Could not find login fields. Please log in manually in the Chrome window.")
+                except Exception: self._log("Auto-login failed. Please do it manually.")
             else:
-                self._log("Inicia sesión manualmente en la ventana de Chrome.")
+                self._log("Please log in manually in the Chrome window.")
 
-            self._log("Esperando validación de LinkedIn...")
+            self._log("Waiting for LinkedIn to confirm login...")
             intentos = 0
             while True:
                 url = self.driver.current_url
                 if any(x in url for x in ["feed", "mynetwork", "search", "in/"]): break
                 if intentos > 60:
-                    self._log("Sigo esperando... Asegúrate de resolver cualquier captcha.")
+                    self._log("Still waiting... Please complete any security check in the Chrome window.")
                     intentos = 0
-                pausa_aleatoria(1.5, 2.5)
+                random_pause(1.5, 2.5)
                 intentos += 1
 
-            cookies = self.driver.get_cookies()
-            with open(ARCHIVO_COOKIES, "w", encoding="utf-8") as f: json.dump(cookies, f)
-            self._log("Sesión guardada. Motor listo.")
-            self._set_session_status("Motor En Línea", EMERALD)
+            saved_cookies = self.driver.get_cookies()
+            with open(COOKIES_FILE, "w", encoding="utf-8") as f: json.dump(saved_cookies, f)
+            self._log("Session saved. Engine ready.")
+            self._set_session_status("Engine Online", EMERALD)
             self._encoger_ventana()
 
         except Exception as e:
-            self._log(f"Error al iniciar Chrome: {e}")
+            self._log(f"Error starting Chrome: {e}")
             self.after(0, lambda: self.btn_arrancar.configure(state="normal"))
 
     def _encoger_ventana(self):
+        """Moves Chrome to the corner to avoid Background Tab Throttling."""
         try:
             self.driver.set_window_position(0, 0)
             self.driver.set_window_size(600, 600)
-            self._log("💡 Chrome se ha apartado a un lado para que puedas trabajar libremente.")
+            self._log("💡 Chrome has moved to the side so you can keep working here.")
         except: pass
 
     # ----------------------------------------------------------------------
-    # ORQUESTADOR DE MÓDULOS DE NEGOCIO
+    # MODULE ORCHESTRATOR
     # ----------------------------------------------------------------------
     def _lanzar_modulo(self, num):
         if self.bot_thread and self.bot_thread.is_alive():
-            self._log("Ya hay una tarea en curso. Por favor, espera.")
+            self._log("A task is already running. Please wait for it to finish.")
             return
         self.stop_event.clear()
         self.pause_event.set()
         for btn in [self.btn_pause1, self.btn_pause2, self.btn_pause3]:
-            btn.configure(text="⏸ Pausar", fg_color=AMBER, hover_color="#e6a13c")
+            btn.configure(text="⏸ Pause", fg_color=AMBER, hover_color="#e6a13c")
         self._set_modulo_buttons("disabled")
 
         def _show_ctrl():
@@ -599,7 +616,7 @@ class AIntelligenceApp(ctk.CTk):
     # CONNECTION ENGINE v5 — SHADOW PIERCER & SCOPE RESTRICTION
     # ======================================================================
     def _click_natively(self, element, log_method=None):
-        if not element: raise Exception("Elemento nulo.")
+        if not element: raise Exception("Element not found.")
         try:
             self.driver.execute_script("arguments[0].scrollIntoView({block:'center', inline:'center'});", element)
             time.sleep(0.5)
@@ -609,7 +626,7 @@ class AIntelligenceApp(ctk.CTk):
             self.driver.execute_script("arguments[0].focus();", element)
             time.sleep(0.2)
             element.send_keys(Keys.ENTER)
-            if log_method: log_method("  [Engine] Focus+Enter (trusted) ejecutado.")
+            if log_method: log_method("  [Engine] Click executed.")
             return
         except: pass
 
@@ -627,7 +644,7 @@ class AIntelligenceApp(ctk.CTk):
             self.driver.execute_script("arguments[0].click();", element)
             return
         except Exception as e:
-            raise Exception(f"Fallo absoluto de interacción: {e}")
+            raise Exception(f"Click failed: {e}")
 
     def _esperar_zona_acciones(self):
         selectores = ["//div[contains(@class,'pvs-profile-actions')]", "//div[contains(@class,'pv-top-card-v2-ctas')]", "//div[contains(@class,'ph5') and .//button]"]
@@ -701,6 +718,7 @@ class AIntelligenceApp(ctk.CTk):
         return None
 
     def _manejar_modal_conexion(self, nombre):
+        """Pierces the Shadow DOM to accept silent connections without user friction."""
         time.sleep(random.uniform(1.8, 2.8))
 
         for intento_modal in range(3):
@@ -717,9 +735,9 @@ class AIntelligenceApp(ctk.CTk):
 
             if not modal_state or not modal_state.get("exists"):
                 if self._verificar_envio_exitoso(fast_check=True):
-                    self._log("  ✔ Invitación enviada instantáneamente (Sin modal).")
+                    self._log("  ✔ Invitation sent instantly.")
                     return True
-                self._log(f"  ℹ️ Esperando aparición del modal (intento {intento_modal + 1})")
+                self._log(f"  ℹ️ Waiting for confirmation window (attempt {intento_modal + 1})...")
                 time.sleep(1)
                 continue
 
@@ -731,7 +749,7 @@ class AIntelligenceApp(ctk.CTk):
             ])
 
             if es_friccion:
-                self._log("  🛡️ Modal de fricción (Shadow DOM) → seleccionando 'Otro'...")
+                self._log("  🛡️ LinkedIn asked how you know this person — selecting Other...")
                 script_friccion = """
                 var host = document.querySelector('#interop-outlet');
                 var root = (host && host.shadowRoot) ? host.shadowRoot : document;
@@ -760,10 +778,10 @@ class AIntelligenceApp(ctk.CTk):
                     return false;
                     """
                     if self.driver.execute_script(script_primary):
-                        self._log("  ✔ Fricción superada → botón primario pulsado")
+                        self._log("  ✔ Question answered — clicking Send...")
                         time.sleep(2)
                         continue
-                self._log("  ❌ No se pudo superar la fricción en Shadow DOM.")
+                self._log("  ❌ Could not answer LinkedIn's question. Skipping this profile.")
 
                 self.driver.execute_script("""
                 var host = document.querySelector('#interop-outlet');
@@ -790,7 +808,7 @@ class AIntelligenceApp(ctk.CTk):
                 return false;
                 """
                 if self.driver.execute_script(script_sin_nota):
-                    self._log("  ✔ Enviado sin nota (Shadow DOM)")
+                    self._log("  ✔ Sent without a note")
                     time.sleep(random.uniform(2.0, 3.0))
                     return True
 
@@ -803,7 +821,7 @@ class AIntelligenceApp(ctk.CTk):
                 return false;
                 """
                 if self.driver.execute_script(script_send):
-                    self._log("  ✔ Confirmación enviada (Shadow DOM genérico)")
+                    self._log("  ✔ Invitation confirmed")
                     time.sleep(random.uniform(2.0, 3.0))
                     return True
 
@@ -821,7 +839,7 @@ class AIntelligenceApp(ctk.CTk):
                 return false;
                 """
                 if self.driver.execute_script(script_skip):
-                    self._log("  ✔ Omitida la nota (Shadow DOM)")
+                    self._log("  ✔ Skipped note")
                     time.sleep(random.uniform(2.0, 3.0))
                     return True
             break
@@ -853,7 +871,7 @@ class AIntelligenceApp(ctk.CTk):
                         if botones_recheck and botones_recheck[0].is_displayed():
                             return True
                         else:
-                            self._log("  ⚠️ Backend Rejection: LinkedIn revirtió el botón a 'Conectar'.")
+                            self._log("  ⚠️ LinkedIn rejected the invitation. Skipping this profile.")
                             return False
 
                 toasts = self.driver.find_elements(By.XPATH, "//*[contains(@class,'artdeco-toast') or contains(@class,'notification')]")
@@ -866,19 +884,19 @@ class AIntelligenceApp(ctk.CTk):
         return False
 
     # ======================================================================
-    # MÓDULO 1: BOT DE NETWORKING AUTOMATIZADO
+    # MODULE 1: AUTOMATED NETWORKING BOT
     # ======================================================================
     def _run_mod1(self):
-        archivo = self.archivo_mod1_seleccionado
+        archivo = self.mod1_selected_file
         if not archivo or not os.path.isfile(archivo):
-            self._log("Error: Debes seleccionar un archivo CSV válido.")
+            self._log("Error: Please select a valid CSV file first.")
             self._set_modulo_buttons("normal"); return
 
-        self._log(f"Bot Networking — {os.path.basename(archivo)}")
-        procesados = cargar_procesados()
+        self._log(f"Loading leads list — {os.path.basename(archivo)}")
+        procesados = load_processed()
         filas = []
 
-        # Auto-Encoding Shield contra la corrupción de Excel
+        # Auto-Encoding Shield: Prevents crash when MS Excel saves as ANSI/Latin1
         encodings_to_try = ["utf-8-sig", "latin1", "cp1252", "iso-8859-1"]
         lectura_exitosa = False
 
@@ -893,7 +911,7 @@ class AIntelligenceApp(ctk.CTk):
                         nom_col = next((c for c in (rd.fieldnames or []) if "nombre" in c or "name" in c), None)
                         if url_col:
                             url = row.get(url_col, "").strip()
-                            nom = row.get(nom_col, "Usuario").strip() if nom_col else "Usuario"
+                            nom = row.get(nom_col, "Unknown").strip() if nom_col else "Unknown"
                             if url.startswith("http") and url not in procesados:
                                 filas.append((url, nom))
                 lectura_exitosa = True
@@ -901,28 +919,28 @@ class AIntelligenceApp(ctk.CTk):
             except UnicodeDecodeError:
                 continue
             except Exception as e:
-                self._log(f"Error inesperado al leer CSV: {e}")
+                self._log(f"Unexpected error reading file: {e}")
                 self._set_modulo_buttons("normal"); return
 
         if not lectura_exitosa:
-            self._log("Error de codificación en el archivo CSV. Ábrelo con Excel y dale a Guardar como 'CSV UTF-8'.")
+            self._log("File encoding error. Please open the file in Excel and save it as 'CSV UTF-8'.")
             self._set_modulo_buttons("normal"); return
 
         total = len(filas)
         if total == 0:
-            self._log("CSV vacío o todos ya procesados.")
+            self._log("The file is empty or all profiles have already been processed.")
             self._set_modulo_buttons("normal"); return
 
-        self._log(f"{total} perfiles nuevos en cola.")
+        self._log(f"{total} new profiles queued.")
 
         try:
             for i, (enlace, nombre) in enumerate(filas, 1):
                 self._check_stop_pause()
                 self._set_progress(self.prog1, i / max(total, 1), f"[{i}/{total}]  {nombre[:35]}")
 
-                # Rate-Limiting: Evitamos un ban utilizando tu constante de config.py (.env)
-                if contadores["conexiones"] >= MAX_CONEXIONES_DIA:
-                    self._log("Límite diario alcanzado. Deteniendo para proteger la cuenta.")
+                # Environment fallback logic
+                if counters["connections"] >= MAX_CONNECTIONS_PER_DAY:
+                    self._log("Daily limit reached. Stopping to protect your account.")
                     break
 
                 self.driver.get(enlace)
@@ -932,7 +950,7 @@ class AIntelligenceApp(ctk.CTk):
 
                 try:
                     if "/in/" in enlace.lower():
-                        self._log(f"  → Navegando a perfil de {nombre}...")
+                        self._log(f"  → Navigating to: {nombre}...")
                         self._esperar_zona_acciones()
                         self._check_stop_pause()
 
@@ -940,14 +958,14 @@ class AIntelligenceApp(ctk.CTk):
                         clicked = False
 
                         if btn_connect:
-                            self._log("  ✔ Botón Conectar localizado directamente")
+                            self._log("  ✔ Connect button found")
                             try:
                                 self._click_natively(btn_connect, self._log)
                                 clicked = True
                             except Exception as e_click:
-                                self._log(f"  ⚠️ Error en clic directo: {e_click}")
+                                self._log(f"  ⚠️ Click error: {e_click}")
                         else:
-                            self._log("  ℹ️ Botón directo no visible → probando 'Más opciones'...")
+                            self._log("  ℹ️ Direct button hidden — Searching in 'More'...")
                             btn_mas = self._localizar_elemento_por_js('mas')
                             if btn_mas:
                                 try:
@@ -964,20 +982,20 @@ class AIntelligenceApp(ctk.CTk):
                         if clicked:
                             exito = self._manejar_modal_conexion(nombre)
                             if exito:
-                                inc("conexiones")
-                                self._log(f"  ✅ Invitación confirmada → {nombre}")
+                                inc("connections")
+                                self._log(f"  ✅ Invitation confirmed for → {nombre}")
                             else:
                                 exito_tardio = self._verificar_envio_exitoso()
                                 if exito_tardio:
-                                    inc("conexiones")
-                                    self._log(f"  ✅ Invitación confirmada (tardía) → {nombre}")
+                                    inc("connections")
+                                    self._log(f"  ✅ Invitation confirmed after checking → {nombre}")
                                 else:
-                                    self._log(f"  ⚠️ No se pudo confirmar el envío para: {nombre}")
+                                    self._log(f"  ⚠️ Could not confirm invitation for: {nombre}")
                         else:
-                            self._log(f"  ⛔ Sin botón Conectar disponible: {nombre} (ya conectados o perfil restringido)")
+                            self._log(f"  ⛔ No Connect button available (Already connected or restricted profile)")
 
                     elif "/company/" in enlace.lower():
-                        if contadores["seguidos"] < MAX_SEGUIR_DIA:
+                        if counters["followed"] < MAX_FOLLOWS_PER_DAY:
                             script_empresa = """
                             var els = document.querySelectorAll("button, a");
                             for(var i=0; i<els.length; i++) {
@@ -988,44 +1006,44 @@ class AIntelligenceApp(ctk.CTk):
                             } return false;
                             """
                             if self.driver.execute_script(script_empresa):
-                                inc("seguidos")
-                                self._log(f"Empresa seguida: {nombre}")
+                                inc("followed")
+                                self._log(f"Company successfully followed: {nombre}")
 
-                    marcar_como_procesado(enlace)
+                    mark_as_processed(enlace)
                     procesados.add(enlace)
 
                 except Exception as e:
-                    inc("errores")
-                    self._log(f"Error estructural con {nombre}: {e}")
+                    inc("errors")
+                    self._log(f"Error processing {nombre}: {e}")
 
                 self._update_stats()
                 self._pausa(8, 14)
 
-            self._set_progress(self.prog1, 1.0, "Campaña finalizada.")
-            self._log(f"Módulo 1 completado — {contadores['conexiones']} invitaciones enviadas.")
+            self._set_progress(self.prog1, 1.0, "Campaign finished.")
+            self._log(f"Done! {counters['connections']} invitations sent.")
 
         except InterruptedError as e:
             self._log(f"⚠️ {e}")
-            self._set_progress(self.prog1, 0, "Campaña detenida.")
+            self._set_progress(self.prog1, 0, "Campaign stopped manually.")
         except Exception as e:
-            self._log(f"Error inesperado: {e}")
+            self._log(f"Unexpected error: {e}")
         finally:
             self._set_modulo_buttons("normal")
 
     # ======================================================================
-    # MÓDULO 2: CAZADOR DE VACANTES B2B Y RECLUTADORES
+    # MODULE 2: JOB & RECRUITER FINDER
     # ======================================================================
     def _pre_run_mod2(self):
         keyword = self.e_m2_puesto.get().strip()
         if not keyword:
-            self._log("Escribe un sector (Ej: IT, Tech, Software)"); return
-        default_name = f"Vacantes_{keyword.replace(' ', '_')}_Malta.csv"
+            self._log("Please type something to search (e.g. IT, Finance, Tech)"); return
+        default_name = f"Job_Openings_{keyword.replace(' ', '_')}_Malta.csv"
         path = filedialog.asksaveasfilename(
-            title="Guardar Vacantes como...", initialfile=default_name,
-            defaultextension=".csv", filetypes=[("CSV", "*.csv"), ("Todos", "*.*")])
+            title="Save Job Results as...", initialfile=default_name,
+            defaultextension=".csv", filetypes=[("CSV", "*.csv"), ("All Files", "*.*")])
         if not path:
-            self._log("Operación cancelada."); return
-        self.save_path_mod2 = path
+            self._log("Cancelled."); return
+        self.mod2_save_path = path
         self._lanzar_modulo(2)
 
     def _run_mod2(self):
@@ -1036,15 +1054,14 @@ class AIntelligenceApp(ctk.CTk):
             pag_str = self.e_m2_pags.get().strip()
             paginas = int(pag_str) if pag_str.isdigit() else 1
 
-            f_wt = {"Presencial": "&f_WT=1", "Híbrido": "&f_WT=3", "Remoto": "&f_WT=2", "Todos": ""}.get(tipo_str, "")
-            f_tpr = {"Últimas 24h": "&f_TPR=r86400", "Última semana": "&f_TPR=r604800", "Cualquiera": ""}.get(tiempo_str, "")
+            f_wt = {"On-site": "&f_WT=1", "Hybrid": "&f_WT=3", "Remote": "&f_WT=2", "All": ""}.get(tipo_str, "")
+            f_tpr = {"Last 24h": "&f_TPR=r86400", "Last week": "&f_TPR=r604800", "Any time": ""}.get(tiempo_str, "")
 
-            url_base = f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(keyword)}&location=Malta&geoId=100768673"
-            if tipo_str != "Remoto": url_base += "&distance=0"
-            url_base += f"&sortBy=DD{f_wt}{f_tpr}"
+            kw_final = keyword if "malta" in keyword.lower() else f"{keyword} Malta"
+            url_base = f"https://www.linkedin.com/jobs/search/?keywords={urllib.parse.quote(kw_final)}&sortBy=DD{f_wt}{f_tpr}"
 
             ofertas_data = {}
-            self._log("FASE 1 — Escaneando ofertas de empleo en Malta...")
+            self._log("STEP 1 — Scanning job list in Malta...")
 
             for pag in range(paginas):
                 self._check_stop_pause()
@@ -1056,7 +1073,7 @@ class AIntelligenceApp(ctk.CTk):
                 try:
                     WebDriverWait(self.driver, 6).until(EC.presence_of_element_located((By.XPATH, "//*[@data-occludable-job-id]")))
                 except:
-                    self._log("Sin resultados para estos filtros."); break
+                    self._log("No results found for these filters."); break
 
                 for _ in range(10):
                     self._check_stop_pause()
@@ -1071,19 +1088,19 @@ class AIntelligenceApp(ctk.CTk):
                 for t in self.driver.find_elements(By.XPATH, "//*[@data-occludable-job-id]"):
                     jid = (t.get_attribute("data-occludable-job-id") or "").strip()
                     if not jid or jid in ofertas_data: continue
-                    t_tit = extraer_texto_seguro(t, [".//strong", ".//h3", ".//a"])
+                    t_tit = extract_safe_text(t, [".//strong", ".//h3", ".//a"])
                     lines = [l.strip() for l in t.text.split('\n') if l.strip()]
                     ofertas_data[jid] = {"titulo": t_tit, "empresa": lines[1] if len(lines) >= 2 else ""}
 
-                self._set_progress(self.prog2, (pag + 1) / paginas, f"Escaneando Pág {pag + 1}/{paginas}")
+                self._set_progress(self.prog2, (pag + 1) / paginas, f"Scanning Page {pag + 1}/{paginas}")
 
-            self._log(f"FASE 2 — Extracción Profunda de {len(ofertas_data)} ofertas...")
-            cabeceras = ["Titulo", "Empresa", "Ubicacion", "Modalidad", "Tiempo_Publicado", "Tamano_Empresa", "Reclutador", "Link_Reclutador", "URL_Oferta"]
+            self._log(f"STEP 2 — Opening {len(ofertas_data)} job listings to extract details...")
+            cabeceras = ["Job Title", "Company", "Location", "Work Model", "Time Posted", "Company Size", "Recruiter", "Recruiter Link", "Job URL"]
             vacantes = []
 
             for i, (job_id, data_card) in enumerate(ofertas_data.items()):
                 self._check_stop_pause()
-                self._set_progress(self.prog2, i / max(len(ofertas_data), 1), f"Analizando {i + 1}/{len(ofertas_data)}")
+                self._set_progress(self.prog2, i / max(len(ofertas_data), 1), f"Analyzing {i + 1}/{len(ofertas_data)}")
                 url_oferta = f"https://www.linkedin.com/jobs/view/{job_id}/"
 
                 try:
@@ -1094,9 +1111,9 @@ class AIntelligenceApp(ctk.CTk):
 
                     js_deep = """
                     var data = {
-                        titulo: "", empresa: "", ubicacion: "No especificada", modalidad: "No especificada", 
-                        tiempo_publicado: "No especificado", tamano_empresa: "No especificado",
-                        reclutador: "No público", link_reclutador: "N/A", link_empresa: ""
+                        titulo: "", empresa: "", ubicacion: "Not specified", modalidad: "Not specified", 
+                        tiempo_publicado: "Not specified", tamano_empresa: "Not specified",
+                        reclutador: "Not public", link_reclutador: "N/A", link_empresa: ""
                     };
                     
                     var h1 = document.querySelector("h1");
@@ -1117,28 +1134,32 @@ class AIntelligenceApp(ctk.CTk):
                         }
                     }
                     
-                    var allEls = document.querySelectorAll("span, div, li");
-                    
                     var insights = document.querySelectorAll(".job-details-jobs-unified-top-card__job-insight, .tvm__text, li.job-details-jobs-unified-top-card__job-insight");
                     for(var el of insights) {
                         var txt = el.innerText.toLowerCase();
                         if(txt === "remoto" || txt === "remote" || txt === "híbrido" || txt === "hybrid" || txt === "presencial" || txt === "on-site" || txt === "in-person") {
                             data.modalidad = el.innerText.trim(); break;
                         } else if(txt.includes("remoto") || txt.includes("remote") || txt.includes("híbrido") || txt.includes("hybrid") || txt.includes("presencial") || txt.includes("on-site")) {
-                            if (txt.length < 50 && data.modalidad === "No especificada") {
+                            if (txt.length < 50 && data.modalidad === "Not specified") {
                                 data.modalidad = el.innerText.trim().split("\\n")[0]; break;
                             }
                         }
                     }
-                    if(data.modalidad === "No especificada" && data.titulo) {
+                    if(data.modalidad === "Not specified" && data.titulo) {
                         var tLow = data.titulo.toLowerCase();
-                        if(tLow.includes("remoto") || tLow.includes("remote")) data.modalidad = "Remoto (en título)";
-                        else if(tLow.includes("híbrido") || tLow.includes("hybrid")) data.modalidad = "Híbrido (en título)";
+                        if(tLow.includes("remoto") || tLow.includes("remote")) data.modalidad = "Remote (in title)";
+                        else if(tLow.includes("híbrido") || tLow.includes("hybrid")) data.modalidad = "Hybrid (in title)";
                     }
 
+                    // Bilingual Universal Scanner for Company Size
+                    var allEls = document.querySelectorAll("span, div, li");
                     for(var i=0; i<allEls.length; i++){
                         var t = allEls[i].innerText.toLowerCase();
-                        if ((t.includes("empleado") || t.includes("employee") || t.includes("staff")) && (/\\d/.test(t)) && t.length < 30 && (t.includes("-") || t.includes("+") || t.includes(","))) {
+                        // This accepts ANY format, even localized Spanish (e.g., "51 a 200 empleados") 
+                        // as long as it has a digit and the target keyword.
+                        if ((t.includes("empleado") || t.includes("employee") || t.includes("staff") || t.includes("trabajador")) && 
+                            (/\\d/.test(t)) && 
+                            t.length < 40) {
                             data.tamano_empresa = allEls[i].innerText.trim().replace(/\\n/g, ' '); 
                             break;
                         }
@@ -1176,64 +1197,64 @@ class AIntelligenceApp(ctk.CTk):
                     """
                     deep_data = self.driver.execute_script(js_deep) or {}
 
-                    titulo = deep_data.get("titulo") or data_card["titulo"] or "No extraído"
+                    titulo = deep_data.get("titulo") or data_card["titulo"] or "Not extracted"
                     empresa = deep_data.get("empresa")
                     if not empresa or empresa.lower() == titulo.lower():
-                        empresa = data_card["empresa"] or "Confidencial"
-                    if empresa.lower() == titulo.lower(): empresa = "Confidencial"
+                        empresa = data_card["empresa"] or "Confidential"
+                    if empresa.lower() == titulo.lower(): empresa = "Confidential"
 
-                    ubicacion = deep_data.get("ubicacion", "No especificada")
-                    modalidad = deep_data.get("modalidad", "No especificada")
-                    tiempo_publicado = deep_data.get("tiempo_publicado", "No especificado")
-                    tamano_empresa = deep_data.get("tamano_empresa", "No especificado")
+                    ubicacion = deep_data.get("ubicacion", "Not specified")
+                    modalidad = deep_data.get("modalidad", "Not specified")
+                    tiempo_publicado = deep_data.get("tiempo_publicado", "Not specified")
+                    tamano_empresa = deep_data.get("tamano_empresa", "Not specified")
 
-                    reclutador = deep_data.get("reclutador", "No público")
+                    reclutador = deep_data.get("reclutador", "Not public")
                     reclutador_link = deep_data.get("link_reclutador", "N/A")
                     link_empresa = deep_data.get("link_empresa", "")
 
-                    if reclutador == "No público" and link_empresa:
+                    if reclutador == "Not public" and link_empresa:
                         reclutador_link = f"{link_empresa.rstrip('/')}/people/"
-                        reclutador = "Buscar en empresa ➔"
+                        reclutador = "Search in company directory ➔"
 
                     vacantes.append([titulo, empresa, ubicacion, modalidad, tiempo_publicado, tamano_empresa, reclutador, reclutador_link, url_oferta])
-                    log_empresa = empresa if empresa != "Confidencial" else titulo[:30]
+                    log_empresa = empresa if empresa != "Confidential" else titulo[:30]
                     self._log(f"  {log_empresa} -> {modalidad} | {tamano_empresa}")
 
                 except Exception as e:
-                    inc("errores"); self._log(f"Error en oferta {job_id}: {e}")
+                    inc("errors"); self._log(f"Error reading job {job_id}: {e}")
 
-            self._set_progress(self.prog2, 1.0, "Extracción completada.")
+            self._set_progress(self.prog2, 1.0, "Scan complete.")
             if vacantes:
-                ruta_final = guardar_en_csv(self.save_path_mod2, cabeceras, vacantes, "URL_Oferta")
+                ruta_final = save_to_csv(self.mod2_save_path, cabeceras, vacantes, "Job URL")
                 if ruta_final:
-                    self._log(f"¡Éxito! {len(vacantes)} vacantes exportadas en: {os.path.basename(ruta_final)}")
+                    self._log(f"Success! {len(vacantes)} job listings saved to: {os.path.basename(ruta_final)}")
 
         except InterruptedError as e:
             self._log(f"⚠️ {e}")
-            self._set_progress(self.prog2, 0, "Extracción detenida.")
+            self._set_progress(self.prog2, 0, "Scan stopped.")
             if 'vacantes' in locals() and vacantes:
-                ruta_final = guardar_en_csv(self.save_path_mod2, cabeceras, vacantes, "URL_Oferta")
+                ruta_final = save_to_csv(self.mod2_save_path, cabeceras, vacantes, "Job URL")
                 if ruta_final:
-                    self._log(f"Se guardaron {len(vacantes)} vacantes extraídas hasta el momento.")
+                    self._log(f"Saved {len(vacantes)} job listings collected so far.")
         except Exception as e:
-            self._log(f"Error inesperado: {e}")
+            self._log(f"Unexpected error: {e}")
         finally:
             self._set_modulo_buttons("normal")
 
     # ======================================================================
-    # MÓDULO 3: PROSPECTOR SEMÁNTICO DE PERFILES (LEAD GENERATION)
+    # MODULE 3: PROFILE PROSPECTOR
     # ======================================================================
     def _pre_run_mod3(self):
         keyword = self.e_m3_perfil.get().strip()
         if not keyword:
-            self._log("Escribe qué perfil buscas (Ej: Marketing Manager)."); return
+            self._log("Please type the job title you are looking for (e.g. Marketing Manager)."); return
         default_name = f"Leads_{keyword.replace(' ', '_')}_Malta.csv"
         path = filedialog.asksaveasfilename(
-            title="Guardar Base de Datos como...", initialfile=default_name,
-            defaultextension=".csv", filetypes=[("CSV", "*.csv"), ("Todos", "*.*")])
+            title="Save Contact List as...", initialfile=default_name,
+            defaultextension=".csv", filetypes=[("CSV", "*.csv"), ("All Files", "*.*")])
         if not path:
-            self._log("Operación cancelada."); return
-        self.save_path_mod3 = path
+            self._log("Cancelled."); return
+        self.mod3_save_path = path
         self._lanzar_modulo(3)
 
     def _run_mod3(self):
@@ -1242,17 +1263,17 @@ class AIntelligenceApp(ctk.CTk):
             pag_str = self.e_m3_pags.get().strip()
             paginas = max(1, min(5, int(pag_str) if pag_str.isdigit() else 2))
             leads = []; urls_batch = set()
-            cabeceras = ["Nombre", "Cargo", "Empresa_Actual", "URL_Perfil"]
+            cabeceras = ["Name", "Job Title", "Current Company", "Profile URL"]
 
             for pag in range(1, paginas + 1):
                 self._check_stop_pause()
 
+                kw_final = keyword if "malta" in keyword.lower() else f"{keyword} Malta"
                 url = (f"https://www.linkedin.com/search/results/people/?"
-                       f"geoUrn=%5B%22100768673%22%5D"
-                       f"&keywords={urllib.parse.quote(keyword)}"
-                       f"&page={pag}&origin=FACETED_SEARCH")
+                       f"keywords={urllib.parse.quote(kw_final)}"
+                       f"&page={pag}&origin=GLOBAL_SEARCH_HEADER")
 
-                self._log(f"Malta | Página {pag}/{paginas}")
+                self._log(f"Malta | Page {pag}/{paginas}")
                 self.driver.get(url)
                 self._pausa(5, 8)
                 self._detectar_captcha()
@@ -1262,14 +1283,14 @@ class AIntelligenceApp(ctk.CTk):
                     WebDriverWait(self.driver, 10).until(EC.presence_of_element_located(
                         (By.XPATH, "//a[contains(@href,'/in/') and not(contains(@href,'miniProfile'))]")))
                 except TimeoutException:
-                    self._log(f"Sin resultados en página {pag}."); continue
+                    self._log(f"No results on page {pag}."); continue
 
                 for paso in range(4):
                     self._check_stop_pause()
                     self.driver.execute_script(f"window.scrollTo(0,document.body.scrollHeight*{(paso + 1) / 4});")
                     self._pausa(1.5, 2.5)
 
-                self._log("Extrayendo perfiles...")
+                self._log("Reading profiles...")
                 js_extractor = """
                 var leads = []; var processedUrls = new Set(); var processedCards = new Set();
                 var links = document.querySelectorAll("a[href*='/in/']");
@@ -1312,11 +1333,11 @@ class AIntelligenceApp(ctk.CTk):
                 return leads;
                 """
                 raw_leads = self.driver.execute_script(js_extractor) or []
-                self._log(f"  {len(raw_leads)} perfiles detectados")
+                self._log(f"  {len(raw_leads)} profiles found")
 
                 for j, data in enumerate(raw_leads):
                     self._check_stop_pause()
-                    self._set_progress(self.prog3, j / max(len(raw_leads), 1), f"Pág {pag}: procesando {j + 1}/{len(raw_leads)}")
+                    self._set_progress(self.prog3, j / max(len(raw_leads), 1), f"Page {pag}: reading {j + 1}/{len(raw_leads)}")
                     url_perfil = data.get("url", "")
                     nombre_img = data.get("nombre", "")
                     raw_text = data.get("raw", "")
@@ -1328,15 +1349,15 @@ class AIntelligenceApp(ctk.CTk):
                     urls_batch.add(url_norm)
 
                     lineas_raw = [l.strip() for l in raw_text.split('\n') if l.strip()]
-                    resultado = parsear_bloque_perfil(nombre_img, lineas_raw, js_empresa)
-                    if not resultado: continue
+                    result = parse_profile_block(nombre_img, lineas_raw, js_empresa)
+                    if not result: continue
 
-                    leads.append([resultado["nombre"], resultado["cargo"], resultado["empresa_actual"], url_perfil])
-                    self._log(f"  {resultado['nombre']}  /  {resultado['cargo'][:36]}")
+                    leads.append([result["name"], result["job_title"], result["current_company"], url_perfil])
+                    self._log(f"  {result['name']}  /  {result['job_title'][:36]}")
 
                 self._pausa(5, 9)
 
-            self._set_progress(self.prog3, 1.0, "Búsqueda finalizada.")
+            self._set_progress(self.prog3, 1.0, "Search complete.")
 
             vistos = set(); leads_unicos = []
             for fila in leads:
@@ -1345,18 +1366,18 @@ class AIntelligenceApp(ctk.CTk):
                     vistos.add(clave); leads_unicos.append(fila)
 
             dup = len(leads) - len(leads_unicos)
-            if dup > 0: self._log(f"Duplicados eliminados: {dup}")
+            if dup > 0: self._log(f"Duplicates removed: {dup}")
 
             if leads_unicos:
-                ruta_final = guardar_en_csv(self.save_path_mod3, cabeceras, leads_unicos, "URL_Perfil")
+                ruta_final = save_to_csv(self.mod3_save_path, cabeceras, leads_unicos, "Profile URL")
                 if ruta_final:
-                    self._log(f"Éxito — {len(leads_unicos)} perfiles guardados en: {os.path.basename(ruta_final)}")
+                    self._log(f"Done — {len(leads_unicos)} profiles saved to: {os.path.basename(ruta_final)}")
             else:
-                self._log("No se ha guardado a nadie en esta búsqueda.")
+                self._log("No profiles were found for this search.")
 
         except InterruptedError as e:
             self._log(f"⚠️ {e}")
-            self._set_progress(self.prog3, 0, "Búsqueda detenida.")
+            self._set_progress(self.prog3, 0, "Search stopped.")
             if 'leads_unicos' not in locals():
                 vistos = set(); leads_unicos = []
                 for fila in leads:
@@ -1364,10 +1385,10 @@ class AIntelligenceApp(ctk.CTk):
                     if clave not in vistos:
                         vistos.add(clave); leads_unicos.append(fila)
             if leads_unicos:
-                ruta_final = guardar_en_csv(self.save_path_mod3, cabeceras, leads_unicos, "URL_Perfil")
-                self._log(f"Se guardaron {len(leads_unicos)} perfiles extraídos hasta el momento.")
+                ruta_final = save_to_csv(self.mod3_save_path, cabeceras, leads_unicos, "Profile URL")
+                self._log(f"Saved {len(leads_unicos)} profiles collected so far.")
         except Exception as e:
-            self._log(f"Error inesperado: {e}")
+            self._log(f"Unexpected error: {e}")
         finally:
             self._set_modulo_buttons("normal")
 
