@@ -40,8 +40,6 @@ services:
       - "5000:5000" # Exponemos la web al exterior
     depends_on:
       - db
-    env_file:
-      - .env # Lee tus contraseñas de Google, Gemini y Upstash
 
 volumes:
   pgdata:
