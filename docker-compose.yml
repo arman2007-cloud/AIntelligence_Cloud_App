@@ -1,0 +1,48 @@
+version: '3.8'
+
+services:
+  # 1. LA BASE DE DATOS (El disco duro)
+  db:
+    image: postgres:15-alpine
+    container_name: aintel_postgres
+    restart: always
+    environment:
+      POSTGRES_USER: admin
+      POSTGRES_PASSWORD: superpassword
+      POSTGRES_DB: aintelligence
+    ports:
+      # 🛡️ FIX SEC-05: Restringido a localhost. ¡A prueba de hackers!
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  # 2. EL CEREBRO (n8n)
+  n8n:
+    image: docker.n8n.io/n8nio/n8n
+    container_name: aintel_n8n
+    restart: always
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_HOST=0.0.0.0
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - NODE_ENV=production
+    volumes:
+      - n8n_data:/home/node/.n8n
+
+  # 3. EL MANAGER / LA NUBE (Tu Web Flask)
+  web:
+    build: .  # Esto le dice a Docker que construya tu web usando el archivo 'Dockerfile'
+    container_name: aintel_web
+    restart: always
+    ports:
+      - "5000:5000" # Exponemos la web al exterior
+    depends_on:
+      - db
+    env_file:
+      - .env # Lee tus contraseñas de Google, Gemini y Upstash
+
+volumes:
+  pgdata:
+  n8n_data:

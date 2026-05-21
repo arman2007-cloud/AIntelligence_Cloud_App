@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Acceso Seguro - AIntelligence</title>
+    
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&family=DM+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    <style>
+        body {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        .login-wrapper {
+            width: 100%;
+            max-width: 440px; /* Un pelín más ancho para que respiren los inputs */
+            padding: 20px;
+            z-index: 10;
+            animation: fadeUp 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+        .login-logo {
+            text-align: center;
+            margin-bottom: 36px;
+        }
+        .login-logo img {
+            height: 48px;
+            object-fit: contain;
+            transition: transform 0.4s var(--smooth);
+        }
+        .login-logo img:hover {
+            transform: scale(1.05);
+        }
+        
+        /* Efecto premium para la tarjeta de login */
+        .login-card {
+            background: rgba(var(--surface-rgb), 0.95);
+            backdrop-filter: blur(12px);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            box-shadow: 0 16px 40px rgba(0,0,0,0.08), 0 4px 12px rgba(0,0,0,0.04);
+        }
+    </style>
+</head>
+<body>
+    <div class="ambient-bg"></div>
+    
+    <div class="login-wrapper">
+        <div class="login-logo">
+            <img src="{{ url_for('static', filename='logo.png') }}" alt="AIntelligence Logo" onerror="this.style.display='none'">
+            <h1 style="font-family: 'Outfit', sans-serif; font-size: 30px; color: var(--text-1); margin-top: 16px; font-weight: 800; letter-spacing: -0.5px;">AIntelligence</h1>
+            <p style="color: var(--text-2); font-size: 15px; margin-top: 6px;">HR Automation Hub</p>
+        </div>
+
+        <div class="card login-card">
+            <div class="card-body" style="padding: 40px 32px;">
+                
+                {% with messages = get_flashed_messages(with_categories=true) %}
+                    {% if messages %}
+                        {% for category, message in messages %}
+                            {% if category == 'error' %}
+                                <div class="warn-block" style="margin-top:0; margin-bottom:24px; padding:12px 16px; align-items:center;">
+                                    <i class="fa-solid fa-triangle-exclamation"></i>
+                                    <p style="font-size: 13.5px; margin: 0; font-weight:500;">{{ message }}</p>
+                                </div>
+                            {% else %}
+                                <div class="success-block" style="margin-top:0; margin-bottom:24px; padding:12px 16px; align-items:center;">
+                                    <i class="fa-solid fa-check-circle"></i>
+                                    <p style="font-size: 13.5px; margin: 0; font-weight:500;">{{ message }}</p>
+                                </div>
+                            {% endif %}
+                        {% endfor %}
+                    {% endif %}
+                {% endwith %}
+
+                <form method="POST" action="/login">
+                    {{ form.csrf_token }} 
+                    
+                    <div style="margin-bottom: 24px;">
+                        <label class="field-label" for="username">
+                            <i class="fa-solid fa-user icon-main" style="background:var(--mauve-dim); color:var(--mauve);"></i> Usuario
+                        </label>
+                        <div class="input-wrap">
+                            <i class="fa-solid fa-at input-icon"></i>
+                            {{ form.username(class_="premium-input", id="username", autocomplete="username", placeholder="Introduce tu usuario") }}
+                        </div>
+                    </div>
+                    
+                    <div style="margin-bottom: 36px;">
+                        <label class="field-label" for="password" style="display:flex; justify-content:space-between; width:100%;">
+                            <span style="display:flex; align-items:center; gap:8px;">
+                                <i class="fa-solid fa-lock icon-main" style="background:var(--rose-dim); color:var(--rose);"></i> Contraseña
+                            </span>
+                        </label>
+                        <div class="input-wrap">
+                            <i class="fa-solid fa-key input-icon"></i>
+                            {{ form.password(class_="premium-input", id="password", autocomplete="current-password", placeholder="••••••••") }}
+                        </div>
+                    </div>
+
+                    <div class="action-area">
+                        <button type="submit" class="btn btn-primary btn-full btn-lg">
+                            <i class="fa-solid fa-arrow-right-to-bracket"></i> Iniciar Sesión
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+        
+        <p style="text-align: center; color: var(--text-3); font-size: 12.5px; margin-top: 28px; font-family: 'DM Mono', monospace; opacity: 0.8; font-weight:500;">
+            <i class="fa-solid fa-shield-halved"></i> Acceso restringido a personal autorizado
+        </p>
+    </div>
+
+    <script>
+        if (localStorage.getItem('aintel_theme') === 'dark') {
+            document.body.classList.add('dark-theme');
+        }
+    </script>
+</body>
+</html>

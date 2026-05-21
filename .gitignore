@@ -1,0 +1,29 @@
+# Entornos virtuales
+.venv/
+venv/
+env/
+
+# Archivos de entorno y secretos (¡CRÍTICO!)
+.env
+credentials.json
+drive_token.json
+
+# Caché de Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Base de datos local y Logs
+*.sqlite3
+*.db
+*.log
+logs/
+
+# Carpetas del sistema operativo
+.DS_Store
+Thumbs.db
+
+# Carpetas de PyInstaller (No deberían estar en la nube, pero por si acaso)
+build/
+dist/
+*.spec
