@@ -3,27 +3,37 @@
 venv/
 env/
 
-# Archivos de entorno y secretos (¡CRÍTICO!)
+# Archivos de entorno y secretos
 .env
 credentials.json
 drive_token.json
+bot_releases/credentials.json
+bot_releases/drive_token.json
+
+# Archivos comprimidos, imágenes Docker exportadas y Backups
+*.tar
+*.zip
+*.rar
+*.gz
+aintelligence_cloud-web.tar
 
 # Caché de Python
 __pycache__/
 *.pyc
 *.pyo
 
-# Base de datos local y Logs
+# Base de datos local, volúmenes de Docker y Logs
 *.sqlite3
 *.db
 *.log
 logs/
+postgres_data/
 
 # Carpetas del sistema operativo
 .DS_Store
 Thumbs.db
 
-# Carpetas de PyInstaller (No deberían estar en la nube, pero por si acaso)
+# Carpetas de compilación de PyInstaller
 build/
 dist/
 *.spec

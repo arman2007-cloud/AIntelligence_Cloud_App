@@ -90,6 +90,12 @@
 
     <nav class="sidebar-nav">
       <p class="nav-section-label">System</p>
+      
+      <button onclick="window.location.href='/api/download-bot'" class="nav-btn" title="Download Local Agent" style="background: rgba(76, 175, 133, 0.08); border: 1px solid rgba(76, 175, 133, 0.25); margin-bottom: 8px; width: 100%; text-align: left;">
+        <span class="nav-icon" style="color: var(--sage);"><i class="fa-solid fa-download"></i></span>
+        <span class="nav-btn-text" style="color: var(--sage); font-weight: 700;">Download Local Agent</span>
+      </button>
+
       <button class="nav-btn active" onclick="switchTab('view-home',this,'')" title="Dashboard" id="navHome">
         <span class="nav-icon"><i class="fa-solid fa-layer-group"></i></span>
         <span class="nav-btn-text">Dashboard</span>

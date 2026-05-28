@@ -10,7 +10,9 @@ import random
 import json
 import re
 import os
-from flask import Blueprint, request, jsonify, session
+import io
+import zipfile
+from flask import Blueprint, request, jsonify, session, send_file
 from flask_login import login_required, current_user
 from sqlalchemy import desc
 from dotenv import load_dotenv
@@ -32,6 +34,11 @@ load_dotenv(override=True)
 redis_url = os.getenv("REDIS_URL")
 celery_client = Celery('emisor_tareas', broker=redis_url)
 
+celery_client.conf.update(
+    broker_use_ssl={'ssl_cert_reqs': 'none'},
+    redis_backend_use_ssl={'ssl_cert_reqs': 'none'}
+)
+
 WORKER_API_KEY = os.getenv("WORKER_API_KEY")
 
 def error_response(message: str, code: int = 400):
@@ -51,11 +58,10 @@ def purge_zombie_tasks(user_id):
         db.close()
 
 # ==============================================================================
-# 🛡️ MIDDLEWARE DE SEGURIDAD DUAL (WEB vs BOT)
+# MIDDLEWARE DE SEGURIDAD DUAL
 # ==============================================================================
 @api_bp.before_request
 def check_api_token():
-    # 1. Definimos las rutas que usa el Bot Local
     rutas_del_bot = [
         'api.bot_save_lead',
         'api.bot_update_lead_status',
@@ -65,19 +71,16 @@ def check_api_token():
         'api.bot_get_task'
     ]
     
-    # 2. Si la ruta pertenece al Bot, exigimos la WORKER_API_KEY
     if request.endpoint in rutas_del_bot:
         llave_bot = request.headers.get('X-Worker-Key')
         if not llave_bot or llave_bot != WORKER_API_KEY:
             return jsonify({'status': 'error', 'message': 'Bloqueo Bot: Worker Key inválida.'}), 403
-        return # Si tiene la llave correcta, pasa.
+        return 
 
-    # 3. Excepciones que no requieren seguridad (Health check) o la manejan internamente
-    rutas_excepciones = ['api.api_health', 'api.api_get_favorites']
+    rutas_excepciones = ['api.api_health', 'api.api_get_favorites', 'api.download_bot']
     if request.endpoint in rutas_excepciones:
         return
 
-    # 4. Para el resto (El panel Web Frontend), exigimos el token dinámico de sesión
     token_recibido = request.headers.get('X-API-Token')
     token_real = session.get('api_token')
     if not token_real or token_recibido != token_real:
@@ -136,14 +139,12 @@ def get_status():
 
 @api_bp.route('/api/favorites', methods=['GET'])
 def api_get_favorites():
-    # Si viene con user_id y la llave correcta desde el bot
     llave_bot = request.headers.get('X-Worker-Key')
     user_id = request.args.get('user_id')
     
     if user_id and llave_bot == WORKER_API_KEY:
         return jsonify({"status": "success", "favorites": get_favorite_companies(int(user_id))})
     
-    # Si es una petición desde la web
     if not current_user.is_authenticated:
         return error_response("No autorizado", 401)
     return jsonify({"status": "success", "favorites": get_favorite_companies(current_user.id)})
@@ -187,7 +188,7 @@ def control_task():
         db.close()
 
 # ==============================================================================
-# DISPARADORES DE TAREAS 
+# DISPARADORES DE TAREAS
 # ==============================================================================
 @api_bp.route('/api/analyze_profile', methods=['POST'])
 @login_required
@@ -331,12 +332,71 @@ def api_get_stats():
 @login_required
 def set_counter():
     count = int((request.json or {}).get('count', 0))
-    
-    # 🛡️ FIX: Hemos eliminado el bloqueo de seguridad. 
-    # Ahora el administrador manda sobre el contador, sea para subirlo o para bajarlo a 0.
     force_set_daily_count("connections", count, current_user.id)
-    
     return jsonify({"status": "success", "invites_today": count})
+
+
+# ==============================================================================
+# DESCARGA MÁGICA DEL BOT LOCAL (SAAS EXPERIENCE)
+# ==============================================================================
+@api_bp.route('/api/download-bot', methods=['GET'])
+@login_required
+def download_bot():
+    try:
+        # 1. Fabricamos el .env personalizado mapeando las credenciales dinámicas del servidor
+        env_content = f"""# ==========================================
+# 🤖 AINTELLIGENCE - WORKER LOCAL
+# ==========================================
+REDIS_URL={os.getenv('REDIS_URL', '')}
+CELERY_BROKER_URL={os.getenv('REDIS_URL', '')}
+CELERY_RESULT_BACKEND={os.getenv('REDIS_URL', '')}
+
+API_BASE_URL={os.getenv('API_BASE_URL', 'https://infallible-hodgkin.82-223-139-244.plesk.page/api')}
+WORKER_API_KEY={os.getenv('WORKER_API_KEY', '')}
+
+MI_USER_ID={current_user.id}
+HEADLESS=false
+BROWSER_TIMEOUT=8000
+MAX_CONEXIONES=15
+MAX_SEGUIR=25
+
+GEMINI_API_KEY={os.getenv('GEMINI_API_KEY', '')}
+N8N_WEBHOOK_URL={os.getenv('N8N_WEBHOOK_URL', 'https://n8n.infallible-hodgkin.82-223-139-244.plesk.page/webhook/cazador_v2')}
+N8N_API_KEY={os.getenv('N8N_API_KEY', '')}
+DRIVE_FOLDER_ID={os.getenv('DRIVE_FOLDER_ID', '')}
+"""
+        
+        # 2. Creamos el empaquetador ZIP estructurado directamente en memoria RAM
+        memory_file = io.BytesIO()
+        with zipfile.ZipFile(memory_file, 'w', zipfile.ZIP_DEFLATED) as zf:
+            # Añadimos el archivo .env dinámico recién construido
+            zf.writestr('.env', env_content)
+            
+            # Localizamos la carpeta contenedora segura en la raíz de la app
+            base_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'bot_releases')
+            
+            # Eliminamos drive_token.json. Ahora solo necesita estos dos para funcionar.
+            archivos_necesarios = ['AIntelligence_Bot.exe', 'credentials.json']
+            
+            # Inyectamos el ejecutable compilado y las credenciales originales
+            for archivo in archivos_necesarios:
+                ruta_archivo = os.path.join(base_path, archivo)
+                if os.path.exists(ruta_archivo):
+                    zf.write(ruta_archivo, arcname=archivo)
+                else:
+                    return error_response(f"Error interno: Falta el componente '{archivo}' en la bóveda del servidor.", 500)
+                    
+        memory_file.seek(0)
+        
+        # 3. Transmitimos el paquete comprimido de forma transparente al navegador
+        return send_file(
+            memory_file,
+            mimetype='application/zip',
+            as_attachment=True,
+            download_name=f'AIntelligence_Agent_{current_user.username}.zip'
+        )
+    except Exception as e:
+        return error_response(f"Fallo del empaquetador al vuelo: {str(e)}", 500)
 
 
 # ==============================================================================
@@ -367,7 +427,7 @@ def bot_get_daily_count():
     count = get_daily_count(action_type, user_id)
     return jsonify({"count": count}), 200
 
-@api_bp.route('/api/tasks/<task_id>', methods=['PATCH'])
+@api_bp.route('/api/tasks/<task_id>/update', methods=['POST'])
 def bot_update_task(task_id):
     data = request.json
     update_task(task_id, **data)

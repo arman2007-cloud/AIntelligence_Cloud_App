@@ -103,6 +103,13 @@ app.register_blueprint(api_bp)
 # 🛡️ CABECERAS DE SEGURIDAD HTTP EXTREMA
 @app.after_request
 def add_security_headers(response):
+    # 🛑 FIX MULTI-TENANT: Exterminador de Caché.
+    # Obliga al navegador y a Nginx a destruir las "fotos" viejas de la web. 
+    # Así, cuando cambies de usuario en el mismo PC, nunca verás las tablas cruzadas.
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    
     response.headers['X-Frame-Options'] = 'DENY'
     response.headers['X-Content-Type-Options'] = 'nosniff'
     response.headers['Referrer-Policy'] = 'strict-origin-when-cross-origin'

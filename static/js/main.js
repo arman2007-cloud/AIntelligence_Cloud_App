@@ -3,6 +3,9 @@
 const metaToken = document.querySelector('meta[name="api-token"]');
 const SYSTEM_TOKEN = metaToken ? metaToken.getAttribute('content') : "";
 
+// 🛡️ FIX MULTI-TENANT: Prefijo único para aislar la memoria caché del navegador por usuario
+const USER_PREFIX = SYSTEM_TOKEN ? SYSTEM_TOKEN.substring(0, 10) + '_' : '';
+
 if (!SYSTEM_TOKEN) {
     console.error("⚠️ Bloqueo de Seguridad: No se encontró el token dinámico en el HTML.");
 }
@@ -29,6 +32,7 @@ window.addEventListener('DOMContentLoaded', () => {
     const dateSubtitle = document.getElementById('dateSubtitle');
     if(dateSubtitle) dateSubtitle.innerText = new Date().toLocaleDateString('en-US', options);
 
+    // El tema oscuro lo dejamos global (sin prefijo) para que la pantalla no pegue pantallazos blancos al cambiar de usuario
     if (localStorage.getItem('aintel_theme') === 'dark') {
         document.body.classList.add('dark-theme');
         const themeIcon = document.getElementById('themeIcon');
@@ -37,13 +41,14 @@ window.addEventListener('DOMContentLoaded', () => {
         if(themeText) themeText.innerText = 'Light Theme';
     }
 
+    // 🛡️ Memoria de inputs aislada por usuario
     const memInputs = ['outreachMessage', 'inputMessage', 'inputSheetUrl', 'inputCargo', 'inputLocation', 'inputJobTitle', 'inputJobLocation'];
     memInputs.forEach(id => {
         const el = document.getElementById(id);
         if (el) {
-            const saved = localStorage.getItem('aintel_' + id);
+            const saved = localStorage.getItem(USER_PREFIX + 'aintel_' + id);
             if (saved) el.value = saved;
-            el.addEventListener('input', () => localStorage.setItem('aintel_' + id, el.value));
+            el.addEventListener('input', () => localStorage.setItem(USER_PREFIX + 'aintel_' + id, el.value));
         }
     });
 
@@ -115,7 +120,6 @@ window.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    // 🚀 NUEVO: Cargar resultados guardados de LocalStorage (El Antídoto para la Amnesia)
     restoreSavedResults();
 
     fetch('/api/stats', { headers: {'X-API-Token': SYSTEM_TOKEN} }).then(r=>r.json()).then(data => {
@@ -123,17 +127,11 @@ window.addEventListener('DOMContentLoaded', () => {
         updateCounterUI();
     }).catch(e=>console.log(e));
 
-    fetch('/api/check_connection', { headers: {'X-API-Token': SYSTEM_TOKEN} })
-    .then(r => r.json())
-    .then(data => {
-        if (data.status === 'connected' || data.status === 'waiting') {
-            setEngineOnline(true);
-        }
-    });
+    setEngineOnline(true);
 
     setInterval(() => {
-        fetch('/api/ping', { 
-            method: 'POST', 
+        fetch('/api/health', { 
+            method: 'GET', 
             headers: {'X-API-Token': SYSTEM_TOKEN} 
         }).catch(() => {});
     }, 5000);
@@ -146,26 +144,26 @@ window.addEventListener('DOMContentLoaded', () => {
 // ==========================================================================
 function restoreSavedResults() {
     try {
-        // Restaurar Candidatos
-        const savedCandidates = localStorage.getItem('aintel_candidates_data');
+        // Restaurar Candidatos con Prefijo de Usuario
+        const savedCandidates = localStorage.getItem(USER_PREFIX + 'aintel_candidates_data');
         if (savedCandidates) {
             const parsedCands = JSON.parse(savedCandidates);
             if (parsedCands && parsedCands.length > 0) {
                 document.getElementById('emptyCandidates').style.display = 'none';
                 document.getElementById('reviewOutreachPanel').style.display = 'block';
-                const driveLink = localStorage.getItem('aintel_candidates_drive');
+                const driveLink = localStorage.getItem(USER_PREFIX + 'aintel_candidates_drive');
                 if (driveLink) document.getElementById('driveLinkAnchor').href = driveLink;
                 renderCandidates(parsedCands);
             }
         }
 
-        // Restaurar Ofertas de Empleo (Jobs)
-        const savedJobs = localStorage.getItem('aintel_jobs_data');
+        // Restaurar Ofertas de Empleo (Jobs) con Prefijo de Usuario
+        const savedJobs = localStorage.getItem(USER_PREFIX + 'aintel_jobs_data');
         if (savedJobs) {
             const parsedJobs = JSON.parse(savedJobs);
             if (parsedJobs && parsedJobs.length > 0) {
                 document.getElementById('emptyJobs').style.display = 'none';
-                const driveLink = localStorage.getItem('aintel_jobs_drive');
+                const driveLink = localStorage.getItem(USER_PREFIX + 'aintel_jobs_drive');
                 if (driveLink) {
                     const driveBtn = document.getElementById('btnOpenDriveJobs');
                     if (driveBtn) driveBtn.href = driveLink;
@@ -433,10 +431,9 @@ function setEngineOnline(isAutoRestore = false){
                   showToast('Radar complete! Review candidates below.','<i class="fa-solid fa-wand-magic-sparkles"></i>','var(--rose)');
                   document.getElementById('reviewOutreachPanel').style.display='block';
                   
-                  // 🚀 NUEVO: Guardar en LocalStorage
-                  if(res.results) localStorage.setItem('aintel_candidates_data', JSON.stringify(res.results));
+                  if(res.results) localStorage.setItem(USER_PREFIX + 'aintel_candidates_data', JSON.stringify(res.results));
                   if(res.drive_link) {
-                      localStorage.setItem('aintel_candidates_drive', res.drive_link);
+                      localStorage.setItem(USER_PREFIX + 'aintel_candidates_drive', res.drive_link);
                       document.getElementById('driveLinkAnchor').href = res.drive_link;
                   }
                   
@@ -447,9 +444,8 @@ function setEngineOnline(isAutoRestore = false){
               document.getElementById('reviewOutreachPanel').style.display = 'block';
               if(cTask.drive_link) document.getElementById('driveLinkAnchor').href = cTask.drive_link;
               
-              // 🚀 NUEVO: Guardar en LocalStorage (por si hidrató una tarea ya acabada)
-              localStorage.setItem('aintel_candidates_data', JSON.stringify(cTask.results));
-              if(cTask.drive_link) localStorage.setItem('aintel_candidates_drive', cTask.drive_link);
+              localStorage.setItem(USER_PREFIX + 'aintel_candidates_data', JSON.stringify(cTask.results));
+              if(cTask.drive_link) localStorage.setItem(USER_PREFIX + 'aintel_candidates_drive', cTask.drive_link);
               
               renderCandidates(cTask.results);
           }
@@ -464,11 +460,10 @@ function setEngineOnline(isAutoRestore = false){
                   if (res.results && res.results.length > 0) {
                       showToast('Market report saved!','<i class="fa-solid fa-chart-line"></i>','var(--mauve)');
                       
-                      // 🚀 NUEVO: Guardar en LocalStorage
-                      localStorage.setItem('aintel_jobs_data', JSON.stringify(res.results));
+                      localStorage.setItem(USER_PREFIX + 'aintel_jobs_data', JSON.stringify(res.results));
                       
                       if(res.drive_link) {
-                          localStorage.setItem('aintel_jobs_drive', res.drive_link);
+                          localStorage.setItem(USER_PREFIX + 'aintel_jobs_drive', res.drive_link);
                           const dBtn = document.getElementById('btnOpenDriveJobs');
                           dBtn.href = res.drive_link;
                           document.getElementById('driveActionsJobs').style.display='flex';
@@ -479,11 +474,10 @@ function setEngineOnline(isAutoRestore = false){
           } else if (jTask.results && jTask.results.length > 0) {
               document.getElementById('emptyJobs').style.display = 'none';
               
-              // 🚀 NUEVO: Guardar en LocalStorage
-              localStorage.setItem('aintel_jobs_data', JSON.stringify(jTask.results));
+              localStorage.setItem(USER_PREFIX + 'aintel_jobs_data', JSON.stringify(jTask.results));
               
               if(jTask.drive_link) {
-                  localStorage.setItem('aintel_jobs_drive', jTask.drive_link);
+                  localStorage.setItem(USER_PREFIX + 'aintel_jobs_drive', jTask.drive_link);
                   const driveBtn = document.getElementById('btnOpenDriveJobs');
                   driveBtn.href = jTask.drive_link;
                   document.getElementById('driveActionsJobs').style.display='flex';
@@ -549,10 +543,9 @@ function runCandidates(){
           showToast('Radar complete! Review candidates below.','<i class="fa-solid fa-wand-magic-sparkles"></i>','var(--rose)');
           document.getElementById('reviewOutreachPanel').style.display='block';
           
-          // 🚀 NUEVO: Guardar en LocalStorage
-          if(data.results) localStorage.setItem('aintel_candidates_data', JSON.stringify(data.results));
+          if(data.results) localStorage.setItem(USER_PREFIX + 'aintel_candidates_data', JSON.stringify(data.results));
           if(data.drive_link) {
-              localStorage.setItem('aintel_candidates_drive', data.drive_link);
+              localStorage.setItem(USER_PREFIX + 'aintel_candidates_drive', data.drive_link);
               document.getElementById('driveLinkAnchor').href = data.drive_link;
           }
           
@@ -594,11 +587,10 @@ function runJobs(){
           if (data.results && data.results.length > 0) {
               showToast('Market report saved to your HR Drive folder!','<i class="fa-solid fa-chart-line"></i>','var(--mauve)');
               
-              // 🚀 NUEVO: Guardar en LocalStorage
-              localStorage.setItem('aintel_jobs_data', JSON.stringify(data.results));
+              localStorage.setItem(USER_PREFIX + 'aintel_jobs_data', JSON.stringify(data.results));
               
               if(data.drive_link) {
-                  localStorage.setItem('aintel_jobs_drive', data.drive_link);
+                  localStorage.setItem(USER_PREFIX + 'aintel_jobs_drive', data.drive_link);
                   const driveBtn = document.getElementById('btnOpenDriveJobs');
                   driveBtn.href = data.drive_link;
                   document.getElementById('driveActionsJobs').style.display='flex';
@@ -916,18 +908,18 @@ function toggleSelectAll() {
 
 function clearResults(type) {
     if(!confirm("Are you sure you want to clear these results?")) return;
+    
     fetch('/api/clear_results', { method: 'POST', headers: {'X-API-Token': SYSTEM_TOKEN} }).then(r => r.json()).then(res => {
         if(res.status === 'success') {
-            // 🚀 NUEVO: Limpiamos también el LocalStorage
             if(type === 'candidates') {
-                localStorage.removeItem('aintel_candidates_data');
-                localStorage.removeItem('aintel_candidates_drive');
+                localStorage.removeItem(USER_PREFIX + 'aintel_candidates_data');
+                localStorage.removeItem(USER_PREFIX + 'aintel_candidates_drive');
                 document.getElementById('reviewOutreachPanel').style.display = 'none';
                 document.getElementById('emptyCandidates').style.display = 'block';
                 document.getElementById('candidateResults').innerHTML = '';
             } else if(type === 'jobs') {
-                localStorage.removeItem('aintel_jobs_data');
-                localStorage.removeItem('aintel_jobs_drive');
+                localStorage.removeItem(USER_PREFIX + 'aintel_jobs_data');
+                localStorage.removeItem(USER_PREFIX + 'aintel_jobs_drive');
                 document.getElementById('jobResults').innerHTML = '';
                 document.getElementById('emptyJobs').style.display = 'block';
                 document.getElementById('driveActionsJobs').style.display = 'none';
@@ -1021,12 +1013,13 @@ function sendSniperMessage() {
 function resetDefaultMessage() {
     const defaultMsg = `Hello {name}, I noticed your tech background. At AIntelligence Research, we help leaders automate processes. Let’s connect and follow our updates for actionable insights. —Ana`;
     const textArea = document.getElementById('outreachMessage'); textArea.value = defaultMsg;
-    localStorage.setItem('aintel_outreachMessage', defaultMsg); textArea.dispatchEvent(new Event('input'));
+    localStorage.setItem(USER_PREFIX + 'aintel_outreachMessage', defaultMsg); textArea.dispatchEvent(new Event('input'));
     showToast('Message reset to default', '<i class="fa-solid fa-rotate-left"></i>', 'var(--text-2)');
 }
+
 function resetManualMessage() {
     const defaultMsg = `Hello {name}, I noticed your tech background. At AIntelligence Research, we help leaders automate processes. Let’s connect and follow our updates for actionable insights. —Ana`;
     const textArea = document.getElementById('inputMessage'); textArea.value = defaultMsg;
-    localStorage.setItem('aintel_inputMessage', defaultMsg); textArea.dispatchEvent(new Event('input')); 
+    localStorage.setItem(USER_PREFIX + 'aintel_inputMessage', defaultMsg); textArea.dispatchEvent(new Event('input')); 
     showToast('Manual message reset', '<i class="fa-solid fa-rotate-left"></i>', 'var(--text-2)');
 }

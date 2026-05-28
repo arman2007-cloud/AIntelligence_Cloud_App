@@ -1,10 +1,3 @@
-"""
-==============================================================================
-DATABASE CORE (database.py)
-Motor ORM PostgreSQL y lógica de persistencia en la Nube
-==============================================================================
-"""
-
 import os
 import uuid
 import secrets
@@ -13,19 +6,16 @@ from werkzeug.security import generate_password_hash
 
 from sqlalchemy import create_engine, Column, Integer, String, Boolean, DateTime, Text, Date
 from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.exc import IntegrityError
 
-# Conectamos con el contenedor Docker
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://admin:superpassword@localhost:5432/aintelligence")
 
 engine = create_engine(DATABASE_URL)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
-# Helper para la hora actual en UTC
 def get_utc_now():
     return datetime.now(timezone.utc)
-
-# --- DEFINICIÓN DE LAS TABLAS (Modelos) ---
 
 class UserDB(Base):
     __tablename__ = "users"
@@ -87,38 +77,33 @@ class TaskQueueDB(Base):
     created_at = Column(DateTime, default=get_utc_now)
     updated_at = Column(DateTime, default=get_utc_now, onupdate=get_utc_now)
 
-# --- FUNCIONES DE BASE DE DATOS ---
-
 def init_db():
     Base.metadata.create_all(bind=engine)
     db = SessionLocal()
     try:
         admin = db.query(UserDB).filter(UserDB.username == 'admin').first()
         if not admin:
-            # 🛡️ FIX SEC-02: Nunca dejamos una contraseña por defecto
             initial_pass = os.getenv("ADMIN_SETUP_PASSWORD")
             
             if not initial_pass:
-                # Si no hay clave en el .env, generamos una aleatoria de alta seguridad
                 initial_pass = secrets.token_urlsafe(12)
                 print("\n" + "="*60)
-                print("⚠️ ADVERTENCIA: No se encontró ADMIN_SETUP_PASSWORD en .env.")
-                print(f"🔒 Contraseña autogenerada para el administrador: {initial_pass}")
-                print("Guárdala ahora. Esta será la única vez que se muestre en consola.")
+                print(f"ADMIN PASSWORD: {initial_pass}")
                 print("="*60 + "\n")
-                
+            
             admin = UserDB(
                 username='admin', 
                 password_hash=generate_password_hash(initial_pass), 
                 role='admin'
             )
             db.add(admin)
-            db.commit()
-            print("✅ Administrador inicial creado con éxito en la base de datos.")
+            try:
+                db.commit()
+            except IntegrityError:
+                db.rollback()
     finally:
         db.close()
 
-# -- Usuarios --
 def get_user_by_username(username: str) -> dict:
     db = SessionLocal()
     try:
@@ -141,8 +126,12 @@ def create_user(username: str, password_raw: str, role: str = 'recruiter') -> bo
         if db.query(UserDB).filter(UserDB.username == username).first(): return False
         nuevo = UserDB(username=username, password_hash=generate_password_hash(password_raw), role=role)
         db.add(nuevo)
-        db.commit()
-        return True
+        try:
+            db.commit()
+            return True
+        except IntegrityError:
+            db.rollback()
+            return False
     finally: db.close()
 
 def get_all_users() -> list:
@@ -163,7 +152,6 @@ def delete_user(user_id: int) -> bool:
         return False
     finally: db.close()
 
-# -- Leads y Actividad --
 def save_lead(lead_dict: dict, user_id: int):
     db = SessionLocal()
     try:
@@ -232,7 +220,6 @@ def force_set_daily_count(action_type: str, count: int, user_id: int):
         db.commit()
     finally: db.close()
 
-# -- Favoritos --
 def get_favorite_companies(user_id: int) -> list:
     db = SessionLocal()
     try:
